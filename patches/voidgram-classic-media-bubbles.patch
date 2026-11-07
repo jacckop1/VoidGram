@@ -352,14 +352,13 @@ index 0bf7d700..477ebd40 100644
 +    return nil
 +}
 diff --git a/submodules/TelegramUI/Sources/AyuVideoCircle.swift b/submodules/TelegramUI/Sources/AyuVideoCircle.swift
-index a8e608c6..644e0cf0 100644
+index a8e608c6..2687cd25 100644
 --- a/submodules/TelegramUI/Sources/AyuVideoCircle.swift
 +++ b/submodules/TelegramUI/Sources/AyuVideoCircle.swift
-@@ -2,6 +2,36 @@ import Foundation
+@@ -2,6 +2,35 @@ import Foundation
  import UIKit
  import AVFoundation
  import TelegramCore
-+import Postbox
 +import SwiftSignalKit
 +import AccountContext
 +
@@ -370,15 +369,15 @@ index a8e608c6..644e0cf0 100644
 +        return ext.isEmpty ? fallback : ext
 +    }
 +
-+    static func path(context: AccountContext, message: Message, file: TelegramMediaFile, pathExtension: String, completion: @escaping (String?) -> Void) {
++    static func path(context: AccountContext, message: EngineMessage, file: TelegramMediaFile, pathExtension: String, completion: @escaping (String?) -> Void) {
 +        let id = EngineMediaResource.Id(file.resource.id)
 +        if let path = context.engine.resources.completedResourcePath(id: id, pathExtension: pathExtension) {
 +            completion(path)
 +            return
 +        }
-+        let fetch = fetchedMediaResource(mediaBox: context.account.postbox.mediaBox, userLocation: .peer(message.id.peerId), userContentType: MediaResourceUserContentType(file: file), reference: FileMediaReference.message(message: MessageReference(message), media: file).resourceReference(file.resource)).start()
-+        let _ = (context.account.postbox.mediaBox.resourceData(file.resource)
-+        |> filter { $0.complete }
++        let fetch = messageMediaFileInteractiveFetched(context: context, message: message._asMessage(), file: file, userInitiated: true).start()
++        let _ = (context.engine.resources.data(id: id)
++        |> filter { $0.isComplete }
 +        |> take(1)
 +        |> timeout(300.0, queue: .mainQueue(), alternate: .complete())
 +        |> deliverOnMainQueue).start(next: { _ in
@@ -393,7 +392,7 @@ index a8e608c6..644e0cf0 100644
  /// "Video → circle": crops a video to its centre square (384×384, up to 60 s) and sends it as a
  /// round video message.
 diff --git a/submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift b/submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift
-index 4759abae..ecf94702 100644
+index 4759abae..b9a5a108 100644
 --- a/submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift
 +++ b/submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift
 @@ -2591,25 +2591,34 @@ func contextMenuForChatPresentationInterfaceState(chatPresentationInterfaceState
@@ -411,7 +410,7 @@ index 4759abae..ecf94702 100644
 -                            if let chat = AyuPluginChatTracker.current {
 -                                AyuAudioToVoice.send(path: audioPath, to: chat)
 -                            }
-+                            AyuLocalMedia.path(context: context, message: message, file: audio, pathExtension: AyuLocalMedia.fileExtension(audio.fileName, fallback: "mp3"), completion: { path in
++                            AyuLocalMedia.path(context: context, message: EngineMessage(message), file: audio, pathExtension: AyuLocalMedia.fileExtension(audio.fileName, fallback: "mp3"), completion: { path in
 +                                if let path, let chat = AyuPluginChatTracker.current {
 +                                    AyuAudioToVoice.send(path: path, to: chat)
 +                                }
@@ -431,7 +430,7 @@ index 4759abae..ecf94702 100644
 -                            if let chat = AyuPluginChatTracker.current {
 -                                AyuVideoCircle.send(path: videoPath, to: chat)
 -                            }
-+                            AyuLocalMedia.path(context: context, message: message, file: video, pathExtension: AyuLocalMedia.fileExtension(video.fileName, fallback: "mp4"), completion: { path in
++                            AyuLocalMedia.path(context: context, message: EngineMessage(message), file: video, pathExtension: AyuLocalMedia.fileExtension(video.fileName, fallback: "mp4"), completion: { path in
 +                                if let path, let chat = AyuPluginChatTracker.current {
 +                                    AyuVideoCircle.send(path: path, to: chat)
 +                                }
