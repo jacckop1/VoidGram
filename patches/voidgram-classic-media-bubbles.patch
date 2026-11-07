@@ -1,0 +1,441 @@
+diff --git a/submodules/ChatListUI/Sources/ChatListController.swift b/submodules/ChatListUI/Sources/ChatListController.swift
+index 9d7b24fe..4c9d5f4a 100644
+--- a/submodules/ChatListUI/Sources/ChatListController.swift
++++ b/submodules/ChatListUI/Sources/ChatListController.swift
+@@ -764,6 +764,7 @@ public class ChatListControllerImpl: TelegramBaseController, ChatListController
+                 }
+                 
+                 strongSelf.chatListDisplayNode.ayuUpdateBottomFolderSwitch(fraction: fraction, isDragging: strongSelf.chatListDisplayNode.mainContainerNode.isSwitchingCurrentItemFilterByDragging, transition: ComponentTransition(transition))
++                strongSelf.chatListDisplayNode.ayuUpdateClassicTabs(fraction: fraction, transition: transition)
+                 if let navigationBarView = strongSelf.chatListDisplayNode.navigationBarView.view as? ChatListNavigationBar.View, let headerPanelsView = navigationBarView.headerPanels as? HeaderPanelContainerComponent.View, let tabsView = headerPanelsView.tabs as? HorizontalTabsComponent.View {
+                     tabsView.updateTabSwitchFraction(fraction: fraction, isDragging: strongSelf.chatListDisplayNode.mainContainerNode.isSwitchingCurrentItemFilterByDragging, transition: ComponentTransition(transition))
+                 }
+diff --git a/submodules/ChatListUI/Sources/ChatListControllerNode.swift b/submodules/ChatListUI/Sources/ChatListControllerNode.swift
+index cea2685e..9bb8bb07 100644
+--- a/submodules/ChatListUI/Sources/ChatListControllerNode.swift
++++ b/submodules/ChatListUI/Sources/ChatListControllerNode.swift
+@@ -1178,6 +1178,9 @@ final class ChatListControllerNode: ASDisplayNode, ASGestureRecognizerDelegate {
+     let navigationBarView = ComponentView<Empty>()
+     private let ayuBottomFolders = ComponentView<Empty>()
+     private var ayuBottomFoldersBackground: UIVisualEffectView?
++    // VoidGram: the classic design shows Telegram's folder tabs from before Liquid Glass, text with an underline.
++    private var ayuClassicTabs: ChatListFilterTabContainerNode?
++    private var ayuClassicTabsLayout: (width: CGFloat, sideInset: CGFloat)?
+     private var ayuBottomFoldersHeight: CGFloat = 0.0
+     weak var controller: ChatListControllerImpl?
+     
+@@ -1548,6 +1551,7 @@ final class ChatListControllerNode: ASDisplayNode, ASGestureRecognizerDelegate {
+         }
+         
+         var ayuBottomTabs: AnyComponent<Empty>?
++        var ayuTabsNode: ASDisplayNode?
+         var navigationHeaderPanels: AnyComponent<Empty>?
+         if self.controller?.tabContainerData != nil || !panels.isEmpty {
+             var tabs: AnyComponent<Empty>?
+@@ -1695,6 +1699,14 @@ final class ChatListControllerNode: ASDisplayNode, ASGestureRecognizerDelegate {
+                 ayuBottomTabs = tabs
+                 tabs = nil
+             }
++            if AyuAppearancePlus.launchClassicDesign, tabs != nil, let tabContainerData = self.controller?.tabContainerData {
++                let classicTabs = self.ayuClassicTabsNode()
++                self.ayuClassicTabsLayout = (layout.size.width, layout.safeInsets.left)
++                let isEditing = self.isReorderingFilters || (self.mainContainerNode.currentItemNode.currentState.editing && !self.didBeginSelectingChatsWhileEditing)
++                classicTabs.update(size: CGSize(width: layout.size.width, height: 46.0), sideInset: layout.safeInsets.left, filters: tabContainerData.0, selectedFilter: self.mainContainerNode.currentItemFilter, isReordering: self.isReorderingFilters, isEditing: isEditing, canReorderAllChats: self.context.isPremium, filtersLimit: tabContainerData.2, transitionFraction: self.mainContainerNode.transitionFraction, presentationData: self.presentationData, transition: transition.animation.isImmediate ? .immediate : .animated(duration: 0.4, curve: .spring))
++                ayuTabsNode = classicTabs
++                tabs = nil
++            }
+             navigationHeaderPanels = AnyComponent(HeaderPanelContainerComponent(
+                 theme: self.presentationData.theme,
+                 tabs: tabs,
+@@ -1771,7 +1783,7 @@ final class ChatListControllerNode: ASDisplayNode, ASGestureRecognizerDelegate {
+                 storiesIncludeHidden: self.location == .chatList(groupId: .archive),
+                 uploadProgress: self.controller?.storyUploadProgress ?? [:],
+                 headerPanels: navigationHeaderPanels,
+-                tabsNode: nil,
++                tabsNode: ayuTabsNode,
+                 tabsNodeIsSearch: false,
+                 accessoryPanelContainer: self.controller?.accessoryPanelContainer,
+                 accessoryPanelContainerHeight: self.controller?.accessoryPanelContainerHeight ?? 0.0,
+@@ -1896,6 +1908,52 @@ final class ChatListControllerNode: ASDisplayNode, ASGestureRecognizerDelegate {
+         transition.updateSublayerTransformOffset(layer: self.mainContainerNode.layer, offset: CGPoint(x: 0.0, y: -mainDelta))
+     }
+     
++    private func ayuClassicTabsNode() -> ChatListFilterTabContainerNode {
++        if let current = self.ayuClassicTabs {
++            return current
++        }
++        let node = ChatListFilterTabContainerNode(context: self.context)
++        node.tabSelected = { [weak self] id, isDisabled in
++            guard let self else {
++                return
++            }
++            if isDisabled {
++                let context = self.context
++                var replaceImpl: ((ViewController) -> Void)?
++                let controller = PremiumLimitScreen(context: context, subject: .folders, count: self.ayuClassicTabs?.filtersCount ?? 0, action: {
++                    let controller = PremiumIntroScreen(context: context, source: .folders)
++                    replaceImpl?(controller)
++                    return true
++                })
++                replaceImpl = { [weak controller] c in
++                    controller?.replace(with: c)
++                }
++                self.controller?.push(controller)
++            } else {
++                self.controller?.selectTab(id: id)
++            }
++        }
++        node.tabRequestedDeletion = { [weak self] id in
++            if case let .filter(id) = id {
++                self?.controller?.askForFilterRemoval(id: id)
++            }
++        }
++        node.contextGesture = { [weak self] id, sourceNode, gesture, isDisabled in
++            self?.controller?.tabContextGesture(id: id, sourceNode: sourceNode, sourceView: nil, gesture: gesture, keepInPlace: false, isDisabled: isDisabled)
++        }
++        self.ayuClassicTabs = node
++        return node
++    }
++
++    /// Follows a folder swipe in the classic tabs, as the glass tabs follow it.
++    func ayuUpdateClassicTabs(fraction: CGFloat, transition: ContainedViewLayoutTransition) {
++        guard let node = self.ayuClassicTabs, let layout = self.ayuClassicTabsLayout, let tabContainerData = self.controller?.tabContainerData else {
++            return
++        }
++        let isEditing = self.isReorderingFilters || (self.mainContainerNode.currentItemNode.currentState.editing && !self.didBeginSelectingChatsWhileEditing)
++        node.update(size: CGSize(width: layout.width, height: 46.0), sideInset: layout.sideInset, filters: tabContainerData.0, selectedFilter: self.mainContainerNode.currentItemFilter, isReordering: self.isReorderingFilters, isEditing: isEditing, canReorderAllChats: self.context.isPremium, filtersLimit: tabContainerData.2, transitionFraction: fraction, presentationData: self.presentationData, transition: transition)
++    }
++
+     func ayuUpdateBottomFolderSwitch(fraction: CGFloat, isDragging: Bool, transition: ComponentTransition) {
+         if let tabsView = self.ayuBottomFolders.view as? HorizontalTabsComponent.View {
+             tabsView.updateTabSwitchFraction(fraction: fraction, isDragging: isDragging, transition: transition)
+diff --git a/submodules/ChatMessageBackground/Sources/ChatMessageBackground.swift b/submodules/ChatMessageBackground/Sources/ChatMessageBackground.swift
+index 97c8fb6e..5b4f21b3 100644
+--- a/submodules/ChatMessageBackground/Sources/ChatMessageBackground.swift
++++ b/submodules/ChatMessageBackground/Sources/ChatMessageBackground.swift
+@@ -83,6 +83,20 @@ public class ChatMessageBackground: ASDisplayNode {
+     }
+     
+     public var backgroundFrame: CGRect = .zero
++
++    // VoidGram: bubbles of the project's owner and sponsors get a thin gradient edge along the
++    // bubble's own outline (tail included) and a faint wash of the same colours over the fill.
++    public var ayuAccentColors: [UIColor]? {
++        didSet {
++            if self.ayuAccentColors != oldValue {
++                self.ayuUpdateAccent()
++            }
++        }
++    }
++    private var ayuShapeImage: UIImage?
++    private var ayuShapeOutline: UIImage?
++    private var ayuWashLayer: CAGradientLayer?
++    private var ayuEdgeLayer: CAGradientLayer?
+     
+     public var hasImage: Bool {
+         self.imageViewImage != nil
+@@ -121,6 +135,7 @@ public class ChatMessageBackground: ASDisplayNode {
+             transition.updateFrame(view: imageView, frame: imageFrame)
+         }
+         transition.updateFrame(node: self.outlineImageNode, frame: CGRect(origin: CGPoint(), size: size).insetBy(dx: -1.0, dy: -1.0))
++        self.ayuLayoutAccent(frame: imageFrame)
+         self.updateTearMask(size: size, animation: .None)
+     }
+ 
+@@ -132,6 +147,12 @@ public class ChatMessageBackground: ASDisplayNode {
+         }
+ 
+         transition.animator.updateFrame(layer: self.outlineImageNode.layer, frame: CGRect(origin: CGPoint(), size: size).insetBy(dx: -1.0, dy: -1.0), completion: nil)
++        for layer in [self.ayuWashLayer, self.ayuEdgeLayer].compactMap({ $0 }) {
++            transition.animator.updateFrame(layer: layer, frame: imageFrame, completion: nil)
++            if let mask = layer.mask {
++                transition.animator.updateFrame(layer: mask, frame: CGRect(origin: CGPoint(), size: imageFrame.size), completion: nil)
++            }
++        }
+         self.updateTearMask(size: size, animation: transition)
+     }
+ 
+@@ -386,6 +407,54 @@ public class ChatMessageBackground: ASDisplayNode {
+         }
+         
+         self.outlineImageNode.image = outlineImage
++
++        let shapes = ayuBubbleShapes(type: type, graphics: graphics)
++        self.ayuShapeImage = shapes.fill
++        self.ayuShapeOutline = shapes.outline
++        self.ayuUpdateAccent()
++    }
++
++    private func ayuUpdateAccent() {
++        guard let colors = self.ayuAccentColors, colors.count >= 2, let fill = self.ayuShapeImage else {
++            self.ayuWashLayer?.removeFromSuperlayer()
++            self.ayuWashLayer = nil
++            self.ayuEdgeLayer?.removeFromSuperlayer()
++            self.ayuEdgeLayer = nil
++            return
++        }
++        func gradient(_ existing: CAGradientLayer?, opacity: Float) -> CAGradientLayer {
++            let layer = existing ?? CAGradientLayer()
++            layer.colors = colors.map(\.cgColor)
++            layer.startPoint = CGPoint(x: 0.0, y: 0.0)
++            layer.endPoint = CGPoint(x: 1.0, y: 1.0)
++            layer.opacity = opacity
++            if existing == nil {
++                layer.mask = CALayer()
++                self.layer.addSublayer(layer)
++            }
++            return layer
++        }
++        let wash = gradient(self.ayuWashLayer, opacity: 0.12)
++        self.ayuWashLayer = wash
++        ayuApplyStretchable(fill, to: wash.mask)
++        if let outline = self.ayuShapeOutline {
++            let edge = gradient(self.ayuEdgeLayer, opacity: 0.95)
++            self.ayuEdgeLayer = edge
++            ayuApplyStretchable(outline, to: edge.mask)
++        } else {
++            self.ayuEdgeLayer?.removeFromSuperlayer()
++            self.ayuEdgeLayer = nil
++        }
++        if let imageFrame = self.imageFrame {
++            self.ayuLayoutAccent(frame: imageFrame)
++        }
++    }
++
++    private func ayuLayoutAccent(frame: CGRect) {
++        for layer in [self.ayuWashLayer, self.ayuEdgeLayer].compactMap({ $0 }) {
++            layer.frame = frame
++            layer.mask?.frame = CGRect(origin: CGPoint(), size: frame.size)
++        }
+     }
+ 
+     public func animateFrom(sourceView: UIView, transition: CombinedTransition) {
+@@ -856,3 +925,44 @@ public final class ChatMessageBubbleBackdrop: ASDisplayNode {
+         }
+     }
+ }
++
++
++/// A stretchable bubble image as a mask layer's contents, stretched like the image view stretches it.
++private func ayuApplyStretchable(_ image: UIImage, to layer: CALayer?) {
++    guard let layer, let cgImage = image.cgImage else {
++        return
++    }
++    layer.contents = cgImage
++    layer.contentsScale = image.scale
++    let size = image.size
++    let insets = image.capInsets
++    if size.width > 0.0, size.height > 0.0 {
++        layer.contentsCenter = CGRect(x: insets.left / size.width, y: insets.top / size.height, width: max(0.0, size.width - insets.left - insets.right) / size.width, height: max(0.0, size.height - insets.top - insets.bottom) / size.height)
++    }
++}
++
++/// The bubble's shape in plain white, as a fill and as an outline, for the accent masks.
++private func ayuBubbleShapes(type: ChatMessageBackgroundType, graphics: PrincipalThemeEssentialGraphics) -> (fill: UIImage?, outline: UIImage?) {
++    let incoming: Bool
++    let mergeType: ChatMessageBackgroundMergeType
++    switch type {
++    case .none:
++        return (nil, nil)
++    case let .incoming(value):
++        incoming = true
++        mergeType = value
++    case let .outgoing(value):
++        incoming = false
++        mergeType = value
++    }
++    let neighbors: MessageBubbleImageNeighbors
++    switch mergeType {
++    case .None: neighbors = .none
++    case let .Top(side): neighbors = .top(side: side)
++    case .Bottom: neighbors = .bottom
++    case .Both: neighbors = .both
++    case .Side: neighbors = .side
++    case .Extracted: neighbors = .extracted
++    }
++    return (graphics.ayuAccentShape(incoming: incoming, neighbors: neighbors, outline: false), graphics.ayuAccentShape(incoming: incoming, neighbors: neighbors, outline: true))
++}
+diff --git a/submodules/Display/Source/AyuMediaSettings.swift b/submodules/Display/Source/AyuMediaSettings.swift
+index 79f30aea..b40d37a6 100644
+--- a/submodules/Display/Source/AyuMediaSettings.swift
++++ b/submodules/Display/Source/AyuMediaSettings.swift
+@@ -118,7 +118,7 @@ public enum AyuMediaSettings {
+     }
+ 
+     public static var sendAsVideoMessageInPicker: Bool {
+-        get { return !AyuDecoyMode.isActive && UserDefaults.standard.bool(forKey: key("pickerRound")) }
++        get { return !AyuDecoyMode.isActive && (UserDefaults.standard.object(forKey: key("pickerRound")) as? Bool ?? true) }
+         set { set(newValue, "pickerRound") }
+     }
+ 
+diff --git a/submodules/SettingsUI/Sources/AyuSettingsRows.swift b/submodules/SettingsUI/Sources/AyuSettingsRows.swift
+index b9cb9415..a10716ae 100644
+--- a/submodules/SettingsUI/Sources/AyuSettingsRows.swift
++++ b/submodules/SettingsUI/Sources/AyuSettingsRows.swift
+@@ -134,7 +134,7 @@ enum AyuSettingsEntry: ItemListNodeEntry {
+ /// which the app reports to Telegram's servers.
+ /// Raised with every VoidGram update.
+ func ayuAppVersion() -> String {
+-    return "27.6.6"
++    return "27.6.7"
+ }
+ 
+ /// The version with the build number of this IPA, as the settings header shows it.
+diff --git a/submodules/TelegramPresentationData/Sources/PresentationThemeEssentialGraphics.swift b/submodules/TelegramPresentationData/Sources/PresentationThemeEssentialGraphics.swift
+index 6374b809..0bbc2f69 100644
+--- a/submodules/TelegramPresentationData/Sources/PresentationThemeEssentialGraphics.swift
++++ b/submodules/TelegramPresentationData/Sources/PresentationThemeEssentialGraphics.swift
+@@ -202,9 +202,32 @@ public final class PrincipalThemeEssentialGraphics {
+     public let outgoingBubbleGradientImage: UIImage?
+     
+     public let hasWallpaper: Bool
++
++    // VoidGram: bubble shapes in plain white, for masks such as the owner's and sponsors' accent.
++    // Drawn on first use: the theme's own images carry its colours and the wallpaper knockout.
++    private let ayuChatTheme: PresentationThemeChat
++    private let ayuBubbleCorners: PresentationChatBubbleCorners
++    private var ayuAccentShapes: [String: UIImage] = [:]
++    private let ayuAccentLock = NSLock()
++
++    public func ayuAccentShape(incoming: Bool, neighbors: MessageBubbleImageNeighbors, outline: Bool) -> UIImage {
++        let key = "\(incoming)-\(neighbors)-\(outline)"
++        self.ayuAccentLock.lock()
++        defer { self.ayuAccentLock.unlock() }
++        if let image = self.ayuAccentShapes[key] {
++            return image
++        }
++        let maxCornerRadius = self.ayuBubbleCorners.mainRadius
++        let minCornerRadius = (self.ayuBubbleCorners.mergeBubbleCorners && maxCornerRadius >= 10.0) ? self.ayuBubbleCorners.auxiliaryRadius : self.ayuBubbleCorners.mainRadius
++        let image = messageBubbleImage(maxCornerRadius: maxCornerRadius, minCornerRadius: minCornerRadius, incoming: incoming, fillColor: .white, strokeColor: .white, neighbors: neighbors, shadow: nil, wallpaper: .color(0xffffff), knockout: false, extendedEdges: true, onlyOutline: outline)
++        self.ayuAccentShapes[key] = image
++        return image
++    }
+     
+     init(presentationTheme: PresentationTheme, wallpaper initialWallpaper: TelegramWallpaper, preview: Bool = false, bubbleCorners: PresentationChatBubbleCorners) {
+         let theme = presentationTheme.chat
++        self.ayuChatTheme = theme
++        self.ayuBubbleCorners = bubbleCorners
+         let wallpaper = initialWallpaper
+         self.hasWallpaper = !wallpaper.isEmpty
+         
+diff --git a/submodules/TelegramUI/Components/Chat/ChatMessageBubbleItemNode/Sources/ChatMessageBubbleItemNode.swift b/submodules/TelegramUI/Components/Chat/ChatMessageBubbleItemNode/Sources/ChatMessageBubbleItemNode.swift
+index 0bf7d700..477ebd40 100644
+--- a/submodules/TelegramUI/Components/Chat/ChatMessageBubbleItemNode/Sources/ChatMessageBubbleItemNode.swift
++++ b/submodules/TelegramUI/Components/Chat/ChatMessageBubbleItemNode/Sources/ChatMessageBubbleItemNode.swift
+@@ -4090,6 +4090,7 @@ public class ChatMessageBubbleItemNode: ChatMessageItemView, ChatMessagePreviewI
+             legacyTransition = .immediate
+         }
+         strongSelf.backgroundNode.setType(type: backgroundType, highlighted: false, graphics: graphics, maskMode: strongSelf.backgroundMaskMode, hasWallpaper: hasWallpaper, transition: legacyTransition, backgroundNode: presentationContext.backgroundNode)
++        strongSelf.backgroundNode.ayuAccentColors = ayuBubbleAccentColors(item: item)
+         strongSelf.backgroundWallpaperNode.setType(type: backgroundType, theme: item.presentationData.theme, essentialGraphics: graphics, maskMode: strongSelf.backgroundMaskMode, backgroundNode: presentationContext.backgroundNode)
+         strongSelf.shadowNode.setType(type: backgroundType, hasWallpaper: hasWallpaper, graphics: graphics)
+         
+@@ -8157,3 +8158,20 @@ public final class NameNavigateButton: HighlightableButton {
+         }
+     }
+ }
++
++
++// VoidGram: the project's owner and sponsors (anyone with a badge in the registry) get an accented
++// bubble, where supporter badges are shown at all.
++private func ayuBubbleAccentColors(item: ChatMessageItem) -> [UIColor]? {
++    guard item.context.account.network.ayuGhostMode.current.interface.showSupporterBadges, let author = item.message.author, author.id.namespace == Namespaces.Peer.CloudUser else {
++        return nil
++    }
++    let id = author.id.id._internalGetInt64Value()
++    if AyuSupportersManager.shared.ownerPeerId == id {
++        return [UIColor(rgb: 0x8E7CFF), UIColor(rgb: 0x4FC3F7)]
++    }
++    if AyuSupportersManager.shared.isSupporter(peerId: id) {
++        return [UIColor(rgb: 0xF6C26B), UIColor(rgb: 0xF28CB1)]
++    }
++    return nil
++}
+diff --git a/submodules/TelegramUI/Sources/AyuVideoCircle.swift b/submodules/TelegramUI/Sources/AyuVideoCircle.swift
+index a8e608c6..644e0cf0 100644
+--- a/submodules/TelegramUI/Sources/AyuVideoCircle.swift
++++ b/submodules/TelegramUI/Sources/AyuVideoCircle.swift
+@@ -2,6 +2,36 @@ import Foundation
+ import UIKit
+ import AVFoundation
+ import TelegramCore
++import Postbox
++import SwiftSignalKit
++import AccountContext
++
++/// A message's file on disk: at once when it is downloaded, else after fetching it.
++enum AyuLocalMedia {
++    static func fileExtension(_ name: String?, fallback: String) -> String {
++        let ext = ((name ?? "") as NSString).pathExtension
++        return ext.isEmpty ? fallback : ext
++    }
++
++    static func path(context: AccountContext, message: Message, file: TelegramMediaFile, pathExtension: String, completion: @escaping (String?) -> Void) {
++        let id = EngineMediaResource.Id(file.resource.id)
++        if let path = context.engine.resources.completedResourcePath(id: id, pathExtension: pathExtension) {
++            completion(path)
++            return
++        }
++        let fetch = fetchedMediaResource(mediaBox: context.account.postbox.mediaBox, userLocation: .peer(message.id.peerId), userContentType: MediaResourceUserContentType(file: file), reference: FileMediaReference.message(message: MessageReference(message), media: file).resourceReference(file.resource)).start()
++        let _ = (context.account.postbox.mediaBox.resourceData(file.resource)
++        |> filter { $0.complete }
++        |> take(1)
++        |> timeout(300.0, queue: .mainQueue(), alternate: .complete())
++        |> deliverOnMainQueue).start(next: { _ in
++            fetch.dispose()
++            completion(context.engine.resources.completedResourcePath(id: id, pathExtension: pathExtension))
++        }, completed: {
++            fetch.dispose()
++        })
++    }
++}
+ 
+ /// "Video → circle": crops a video to its centre square (384×384, up to 60 s) and sends it as a
+ /// round video message.
+diff --git a/submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift b/submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift
+index 4759abae..ecf94702 100644
+--- a/submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift
++++ b/submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift
+@@ -2591,25 +2591,34 @@ func contextMenuForChatPresentationInterfaceState(chatPresentationInterfaceState
+                         })
+                     })))
+                 }
+-                if !AyuDecoyMode.isActive, let audio = message.media.first(where: { ($0 as? TelegramMediaFile)?.isMusic == true || (($0 as? TelegramMediaFile)?.mimeType.hasPrefix("audio/") == true && ($0 as? TelegramMediaFile)?.isVoice == false) }) as? TelegramMediaFile, let audioPath = context.engine.resources.completedResourcePath(id: EngineMediaResource.Id(audio.resource.id), pathExtension: (audio.fileName as NSString?)?.pathExtension ?? "mp3") {
++                // Audio → voice message and video → round video message: offered for any audio or video,
++                // a file not yet on the device is downloaded first.
++                if !AyuDecoyMode.isActive, let audio = message.media.first(where: { ($0 as? TelegramMediaFile)?.isMusic == true || (($0 as? TelegramMediaFile)?.mimeType.hasPrefix("audio/") == true && ($0 as? TelegramMediaFile)?.isVoice == false) }) as? TelegramMediaFile {
+                     ayuActions.append(.action(ContextMenuActionItem(text: ru ? "Отправить голосовым" : "Send as a voice message", icon: { theme in
+                         return UIImage(systemName: "waveform.circle.fill")?.withTintColor(theme.contextMenu.primaryColor, renderingMode: .alwaysOriginal)
+                     }, action: { controller, _ in
+                         controller?.dismiss(completion: {
+-                            if let chat = AyuPluginChatTracker.current {
+-                                AyuAudioToVoice.send(path: audioPath, to: chat)
+-                            }
++                            AyuLocalMedia.path(context: context, message: message, file: audio, pathExtension: AyuLocalMedia.fileExtension(audio.fileName, fallback: "mp3"), completion: { path in
++                                if let path, let chat = AyuPluginChatTracker.current {
++                                    AyuAudioToVoice.send(path: path, to: chat)
++                                }
++                            })
+                         })
+                     })))
+                 }
+-                if !AyuDecoyMode.isActive, AyuMediaSettings.sendAsVideoMessageInPicker, let video = message.media.first(where: { ($0 as? TelegramMediaFile)?.isVideo == true && ($0 as? TelegramMediaFile)?.isInstantVideo == false }) as? TelegramMediaFile, let videoPath = context.engine.resources.completedResourcePath(id: EngineMediaResource.Id(video.resource.id), pathExtension: "mp4") {
++                if !AyuDecoyMode.isActive, AyuMediaSettings.sendAsVideoMessageInPicker, let video = message.media.first(where: { media in
++                    guard let file = media as? TelegramMediaFile, !file.isInstantVideo, !file.isAnimated, !file.isSticker, !file.isVideoSticker else { return false }
++                    return file.isVideo || file.mimeType.hasPrefix("video/")
++                }) as? TelegramMediaFile {
+                     ayuActions.append(.action(ContextMenuActionItem(text: ru ? "Отправить кружком" : "Send as a video message", icon: { theme in
+                         return UIImage(systemName: "video.circle.fill")?.withTintColor(theme.contextMenu.primaryColor, renderingMode: .alwaysOriginal)
+                     }, action: { controller, _ in
+                         controller?.dismiss(completion: {
+-                            if let chat = AyuPluginChatTracker.current {
+-                                AyuVideoCircle.send(path: videoPath, to: chat)
+-                            }
++                            AyuLocalMedia.path(context: context, message: message, file: video, pathExtension: AyuLocalMedia.fileExtension(video.fileName, fallback: "mp4"), completion: { path in
++                                if let path, let chat = AyuPluginChatTracker.current {
++                                    AyuVideoCircle.send(path: path, to: chat)
++                                }
++                            })
+                         })
+                     })))
+                 }
