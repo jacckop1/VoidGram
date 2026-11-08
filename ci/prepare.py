@@ -55,6 +55,7 @@ patches = [
     root / "patches" / "voidgram-bot-chat-list.patch",
     root / "patches" / "voidgram-gift-actions.patch",
     root / "patches" / "voidgram-classic-media-bubbles.patch",
+    root / "patches" / "voidgram-bubble-skins.patch",
 ]
 for patch in patches:
     subprocess.run(["git", "apply", "--recount", "--check", str(patch)], cwd=source, check=True)
@@ -145,6 +146,11 @@ shutil.copy2(font_src, font_dst)
 eblan_src = root / "assets" / "easter" / "AyuEblan.png"
 if eblan_src.is_file():
     shutil.copy2(eblan_src, source / "submodules" / "TelegramUI" / "Resources" / eblan_src.name)
+
+# Bubble skins (AyuBubbleSkin.swift): the gold frame's 9-slice and ornaments and the grey
+# skin's pattern tile, loaded from the bundle by name. Rebuilt by assets/bubbles/*.py.
+for bubble_asset in sorted((root / "assets" / "bubbles").glob("VoidGramBubble*@3x.png")):
+    shutil.copy2(bubble_asset, source / "submodules" / "TelegramUI" / "Resources" / bubble_asset.name)
 
 missing = missing_port_sources(source)
 if missing:

@@ -254,5 +254,6 @@
   "tools/ayu-tests/music-haptics/main.swift",
   "tools/ayu-tests/startup/main.swift",
   "submodules/TelegramCore/Sources/AyuGram/AyuFeatureGate.swift",
-  "submodules/Display/Source/AyuFeatureGateUI.swift"
+  "submodules/Display/Source/AyuFeatureGateUI.swift",
+  "submodules/ChatMessageBackground/Sources/AyuBubbleSkin.swift"
 ]

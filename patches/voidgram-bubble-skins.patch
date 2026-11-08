@@ -1,0 +1,494 @@
+diff --git a/submodules/ChatMessageBackground/Sources/AyuBubbleSkin.swift b/submodules/ChatMessageBackground/Sources/AyuBubbleSkin.swift
+new file mode 100644
+index 0000000000..2594f2f7ed
+--- /dev/null
++++ b/submodules/ChatMessageBackground/Sources/AyuBubbleSkin.swift
+@@ -0,0 +1,217 @@
++import Foundation
++import UIKit
++import Display
++
++/// VoidGram bubble skins.
++///
++/// `badge`: the grey VoidGram skin, a gradient with the VoidGram mark repeated over it, for
++/// everyone with a badge the owner gave (not a timed one from the daily roulette).
++/// `owner`: the same skin in a gold frame, for the project's owner.
++public enum AyuBubbleSkin: Equatable {
++    case badge(dark: Bool)
++    case owner(dark: Bool)
++
++    var dark: Bool {
++        switch self {
++        case let .badge(dark), let .owner(dark):
++            return dark
++        }
++    }
++
++    var isOwner: Bool {
++        if case .owner = self {
++            return true
++        }
++        return false
++    }
++}
++
++/// The skin's images, shipped in the app bundle (assets/bubbles in the VoidGram repository) and
++/// decoded once. The gradient is drawn by Core Animation; only a 64 pt pattern tile and the
++/// frame's 9-slice and ornaments are bitmaps, so a bubble of any size costs the same.
++private enum AyuBubbleSkinAssets {
++    static func load(_ name: String) -> UIImage? {
++        return Bundle.main.path(forResource: name, ofType: "png").flatMap(UIImage.init(contentsOfFile:))
++    }
++
++    static let frame = load("VoidGramBubbleFrame@3x")
++    static let ornamentTop = load("VoidGramBubbleFrameTop@3x")
++    static let ornamentBottom = load("VoidGramBubbleFrameBottom@3x")
++    static let pattern = load("VoidGramBubblePattern@3x")
++
++    /// The white tile as a pattern colour, light or dark.
++    static let lightPattern: CGColor? = pattern.map { UIColor(patternImage: $0).cgColor }
++    static let darkPattern: CGColor? = pattern.flatMap { image -> CGColor? in
++        let format = UIGraphicsImageRendererFormat()
++        format.scale = image.scale
++        let tinted = UIGraphicsImageRenderer(size: image.size, format: format).image { _ in
++            image.draw(at: .zero)
++            UIColor.black.setFill()
++            UIRectFillUsingBlendMode(CGRect(origin: .zero, size: image.size), .sourceIn)
++        }
++        return UIColor(patternImage: tinted).cgColor
++    }
++}
++
++/// The skin's layers inside a bubble background: the masked fill, and for the owner the frame.
++/// Every frame comes from `frames(imageFrame:)`, so layout and the send animation move all of
++/// them exactly as the bubble image moves.
++final class AyuBubbleSkinLayers {
++    private let fill = CALayer()
++    private let fillMask = CALayer()
++    private let shapeMask = CALayer()
++    private let bodyMask = CALayer()
++    private let gradient = CAGradientLayer()
++    private let pattern = CALayer()
++    private let frame = CALayer()
++    private let ornamentTop = CALayer()
++    private let ornamentBottom = CALayer()
++
++    private var skin: AyuBubbleSkin?
++    private var incoming = false
++
++    /// Frame thickness and its outset beyond the bubble's body, in points.
++    private static let frameOutset: CGFloat = 3.0
++    private static let frameThickness: CGFloat = 7.0
++    /// The bubble image's transparent margin and its tail column (messageBubbleImage).
++    private static let imageInset: CGFloat = 2.0
++    private static let tailWidth: CGFloat = 6.0
++
++    init() {
++        self.fillMask.addSublayer(self.shapeMask)
++        self.fillMask.addSublayer(self.bodyMask)
++        self.fill.mask = self.fillMask
++        self.fill.addSublayer(self.gradient)
++        self.fill.addSublayer(self.pattern)
++
++        self.bodyMask.backgroundColor = UIColor.white.cgColor
++        self.bodyMask.cornerRadius = 2.0
++
++        self.gradient.startPoint = CGPoint(x: 1.0, y: 0.0)
++        self.gradient.endPoint = CGPoint(x: 0.0, y: 1.0)
++
++        for layer in [self.frame, self.ornamentTop, self.ornamentBottom] {
++            layer.contentsScale = 3.0
++            layer.contentsGravity = .resize
++        }
++        self.frame.contents = AyuBubbleSkinAssets.frame?.cgImage
++        if let image = AyuBubbleSkinAssets.frame, let cgImage = image.cgImage {
++            // Corners stay whole, the 2 px plain strips between them stretch.
++            let width = CGFloat(cgImage.width), height = CGFloat(cgImage.height)
++            let capX = floor((width - 2.0) / 2.0), capY = floor((height - 2.0) / 2.0)
++            self.frame.contentsCenter = CGRect(x: capX / width, y: capY / height, width: 2.0 / width, height: 2.0 / height)
++        }
++        self.ornamentTop.contents = AyuBubbleSkinAssets.ornamentTop?.cgImage
++        self.ornamentBottom.contents = AyuBubbleSkinAssets.ornamentBottom?.cgImage
++    }
++
++    private var allLayers: [CALayer] {
++        return [self.fill, self.frame, self.ornamentTop, self.ornamentBottom]
++    }
++
++    func insert(into parent: CALayer, above sibling: CALayer) {
++        CATransaction.begin()
++        CATransaction.setDisableActions(true)
++        parent.insertSublayer(self.fill, above: sibling)
++        parent.insertSublayer(self.frame, above: self.fill)
++        parent.insertSublayer(self.ornamentTop, above: self.frame)
++        parent.insertSublayer(self.ornamentBottom, above: self.ornamentTop)
++        CATransaction.commit()
++    }
++
++    func removeFromSuperlayer() {
++        for layer in self.allLayers {
++            layer.removeFromSuperlayer()
++        }
++    }
++
++    func update(skin: AyuBubbleSkin, shape: UIImage, incoming: Bool, highlighted: Bool) {
++        CATransaction.begin()
++        CATransaction.setDisableActions(true)
++        defer { CATransaction.commit() }
++
++        self.skin = skin
++        self.incoming = incoming
++
++        self.shapeMask.contents = shape.cgImage
++        self.shapeMask.contentsScale = shape.scale
++        let size = shape.size, insets = shape.capInsets
++        if size.width > 0.0, size.height > 0.0 {
++            self.shapeMask.contentsCenter = CGRect(x: insets.left / size.width, y: insets.top / size.height, width: max(0.0, size.width - insets.left - insets.right) / size.width, height: max(0.0, size.height - insets.top - insets.bottom) / size.height)
++        }
++
++        if skin.dark {
++            // Sampled from the reference skin: near-black top right, warm grey bottom left.
++            self.gradient.colors = [UIColor(rgb: 0x060606).cgColor, UIColor(rgb: 0x2A2927).cgColor, UIColor(rgb: 0x737069).cgColor]
++            self.pattern.backgroundColor = AyuBubbleSkinAssets.lightPattern
++            self.pattern.opacity = 0.07
++        } else {
++            self.gradient.colors = [UIColor(rgb: 0xF4F3F1).cgColor, UIColor(rgb: 0xE4E2DF).cgColor, UIColor(rgb: 0xC9C6C1).cgColor]
++            self.pattern.backgroundColor = AyuBubbleSkinAssets.darkPattern
++            self.pattern.opacity = 0.06
++        }
++        self.gradient.locations = [0.0, 0.45, 1.0]
++
++        // The theme's own highlight shows through while the bubble is pressed.
++        self.fill.opacity = highlighted ? 0.75 : 1.0
++
++        let owner = skin.isOwner && AyuBubbleSkinAssets.frame != nil
++        self.bodyMask.isHidden = !owner
++        self.frame.isHidden = !owner
++        self.ornamentTop.isHidden = !owner
++        self.ornamentBottom.isHidden = !owner
++    }
++
++    /// Every skin layer's frame for a bubble image at `imageFrame`.
++    private func frames(imageFrame: CGRect) -> (frames: [(CALayer, CGRect)], roomForOrnaments: Bool) {
++        let bounds = CGRect(origin: .zero, size: imageFrame.size)
++        var body = bounds.insetBy(dx: AyuBubbleSkinLayers.imageInset, dy: AyuBubbleSkinLayers.imageInset)
++        body.size.width = max(0.0, body.width - AyuBubbleSkinLayers.tailWidth)
++        if self.incoming {
++            body.origin.x += AyuBubbleSkinLayers.tailWidth
++        }
++        let frameRect = body.offsetBy(dx: imageFrame.minX, dy: imageFrame.minY).insetBy(dx: -AyuBubbleSkinLayers.frameOutset, dy: -AyuBubbleSkinLayers.frameOutset)
++        // The fill reaches under the frame's square inner corners, past the bubble's round ones.
++        let innerInset = AyuBubbleSkinLayers.frameThickness - AyuBubbleSkinLayers.frameOutset - 0.5
++        let bodyMaskFrame = body.insetBy(dx: innerInset, dy: innerInset)
++
++        var result: [(CALayer, CGRect)] = [
++            (self.fill, imageFrame),
++            (self.fillMask, bounds),
++            (self.shapeMask, bounds),
++            (self.bodyMask, bodyMaskFrame),
++            (self.gradient, bounds),
++            (self.pattern, bounds),
++            (self.frame, frameRect)
++        ]
++        let ornamentSize = CGSize(width: 62.0 / 3.0, height: 36.0 / 3.0)
++        let roomForOrnaments = frameRect.width >= ornamentSize.width + 48.0
++        let ornamentX = floor(frameRect.midX - ornamentSize.width / 2.0)
++        result.append((self.ornamentTop, CGRect(origin: CGPoint(x: ornamentX, y: frameRect.minY), size: ornamentSize)))
++        result.append((self.ornamentBottom, CGRect(origin: CGPoint(x: ornamentX, y: frameRect.maxY - ornamentSize.height), size: ornamentSize)))
++        return (result, roomForOrnaments)
++    }
++
++    /// Moves every layer to its frame for `imageFrame`, each through `apply` (the caller's
++    /// transition). Implicit animations are off: a skin layer moves only as the bubble does.
++    func layout(imageFrame: CGRect, apply: (CALayer, CGRect) -> Void) {
++        CATransaction.begin()
++        CATransaction.setDisableActions(true)
++        let (frames, roomForOrnaments) = self.frames(imageFrame: imageFrame)
++        for (layer, frame) in frames {
++            apply(layer, frame)
++        }
++        let showsFrame = (self.skin?.isOwner ?? false) && AyuBubbleSkinAssets.frame != nil
++        self.ornamentTop.isHidden = !(showsFrame && roomForOrnaments)
++        self.ornamentBottom.isHidden = !(showsFrame && roomForOrnaments)
++        CATransaction.commit()
++    }
++
++    /// The send animation: every layer starts where it would be for the input field's frame.
++    func animate(from sourceFrame: CGRect, animateFrame: (CALayer, CGRect) -> Void) {
++        for (layer, from) in self.frames(imageFrame: sourceFrame).frames {
++            animateFrame(layer, from)
++        }
++        self.fill.animateAlpha(from: 0.0, to: CGFloat(self.fill.opacity), duration: 0.1)
++    }
++}
+diff --git a/submodules/ChatMessageBackground/Sources/ChatMessageBackground.swift b/submodules/ChatMessageBackground/Sources/ChatMessageBackground.swift
+index 5b4f21b34c..50096f2c07 100644
+--- a/submodules/ChatMessageBackground/Sources/ChatMessageBackground.swift
++++ b/submodules/ChatMessageBackground/Sources/ChatMessageBackground.swift
+@@ -84,19 +84,17 @@ public class ChatMessageBackground: ASDisplayNode {
+     
+     public var backgroundFrame: CGRect = .zero
+ 
+-    // VoidGram: bubbles of the project's owner and sponsors get a thin gradient edge along the
+-    // bubble's own outline (tail included) and a faint wash of the same colours over the fill.
+-    public var ayuAccentColors: [UIColor]? {
++    // VoidGram: the owner's and badge holders' bubble skins (AyuBubbleSkin). Their layers follow
++    // the bubble image's every frame change with the same transition, so they never drift.
++    public var ayuSkin: AyuBubbleSkin? {
+         didSet {
+-            if self.ayuAccentColors != oldValue {
+-                self.ayuUpdateAccent()
++            if self.ayuSkin != oldValue {
++                self.ayuUpdateSkin()
+             }
+         }
+     }
+     private var ayuShapeImage: UIImage?
+-    private var ayuShapeOutline: UIImage?
+-    private var ayuWashLayer: CAGradientLayer?
+-    private var ayuEdgeLayer: CAGradientLayer?
++    private var ayuSkinLayers: AyuBubbleSkinLayers?
+     
+     public var hasImage: Bool {
+         self.imageViewImage != nil
+@@ -126,6 +124,7 @@ public class ChatMessageBackground: ASDisplayNode {
+         if let imageFrame = self.imageFrame {
+             imageView.frame = imageFrame
+         }
++        self.ayuUpdateSkin()
+     }
+     
+     public func updateLayout(size: CGSize, transition: ContainedViewLayoutTransition) {
+@@ -135,7 +134,9 @@ public class ChatMessageBackground: ASDisplayNode {
+             transition.updateFrame(view: imageView, frame: imageFrame)
+         }
+         transition.updateFrame(node: self.outlineImageNode, frame: CGRect(origin: CGPoint(), size: size).insetBy(dx: -1.0, dy: -1.0))
+-        self.ayuLayoutAccent(frame: imageFrame)
++        self.ayuSkinLayers?.layout(imageFrame: imageFrame, apply: { layer, frame in
++            transition.updateFrame(layer: layer, frame: frame)
++        })
+         self.updateTearMask(size: size, animation: .None)
+     }
+ 
+@@ -147,12 +148,9 @@ public class ChatMessageBackground: ASDisplayNode {
+         }
+ 
+         transition.animator.updateFrame(layer: self.outlineImageNode.layer, frame: CGRect(origin: CGPoint(), size: size).insetBy(dx: -1.0, dy: -1.0), completion: nil)
+-        for layer in [self.ayuWashLayer, self.ayuEdgeLayer].compactMap({ $0 }) {
+-            transition.animator.updateFrame(layer: layer, frame: imageFrame, completion: nil)
+-            if let mask = layer.mask {
+-                transition.animator.updateFrame(layer: mask, frame: CGRect(origin: CGPoint(), size: imageFrame.size), completion: nil)
+-            }
+-        }
++        self.ayuSkinLayers?.layout(imageFrame: imageFrame, apply: { layer, frame in
++            transition.animator.updateFrame(layer: layer, frame: frame, completion: nil)
++        })
+         self.updateTearMask(size: size, animation: transition)
+     }
+ 
+@@ -408,52 +406,32 @@ public class ChatMessageBackground: ASDisplayNode {
+         
+         self.outlineImageNode.image = outlineImage
+ 
+-        let shapes = ayuBubbleShapes(type: type, graphics: graphics)
+-        self.ayuShapeImage = shapes.fill
+-        self.ayuShapeOutline = shapes.outline
+-        self.ayuUpdateAccent()
++        self.ayuShapeImage = ayuBubbleShape(type: type, graphics: graphics)
++        self.ayuUpdateSkin()
+     }
+ 
+-    private func ayuUpdateAccent() {
+-        guard let colors = self.ayuAccentColors, colors.count >= 2, let fill = self.ayuShapeImage else {
+-            self.ayuWashLayer?.removeFromSuperlayer()
+-            self.ayuWashLayer = nil
+-            self.ayuEdgeLayer?.removeFromSuperlayer()
+-            self.ayuEdgeLayer = nil
++    private func ayuUpdateSkin() {
++        guard self.isNodeLoaded, let skin = self.ayuSkin, let shape = self.ayuShapeImage, let imageView = self.imageView else {
++            self.ayuSkinLayers?.removeFromSuperlayer()
++            self.ayuSkinLayers = nil
+             return
+         }
+-        func gradient(_ existing: CAGradientLayer?, opacity: Float) -> CAGradientLayer {
+-            let layer = existing ?? CAGradientLayer()
+-            layer.colors = colors.map(\.cgColor)
+-            layer.startPoint = CGPoint(x: 0.0, y: 0.0)
+-            layer.endPoint = CGPoint(x: 1.0, y: 1.0)
+-            layer.opacity = opacity
+-            if existing == nil {
+-                layer.mask = CALayer()
+-                self.layer.addSublayer(layer)
+-            }
+-            return layer
+-        }
+-        let wash = gradient(self.ayuWashLayer, opacity: 0.12)
+-        self.ayuWashLayer = wash
+-        ayuApplyStretchable(fill, to: wash.mask)
+-        if let outline = self.ayuShapeOutline {
+-            let edge = gradient(self.ayuEdgeLayer, opacity: 0.95)
+-            self.ayuEdgeLayer = edge
+-            ayuApplyStretchable(outline, to: edge.mask)
++        let layers = self.ayuSkinLayers ?? AyuBubbleSkinLayers()
++        if self.ayuSkinLayers == nil {
++            self.ayuSkinLayers = layers
++            layers.insert(into: self.layer, above: imageView.layer)
++        }
++        let incoming: Bool
++        if case .incoming = self.type {
++            incoming = true
+         } else {
+-            self.ayuEdgeLayer?.removeFromSuperlayer()
+-            self.ayuEdgeLayer = nil
++            incoming = false
+         }
++        layers.update(skin: skin, shape: shape, incoming: incoming, highlighted: self.currentHighlighted ?? false)
+         if let imageFrame = self.imageFrame {
+-            self.ayuLayoutAccent(frame: imageFrame)
+-        }
+-    }
+-
+-    private func ayuLayoutAccent(frame: CGRect) {
+-        for layer in [self.ayuWashLayer, self.ayuEdgeLayer].compactMap({ $0 }) {
+-            layer.frame = frame
+-            layer.mask?.frame = CGRect(origin: CGPoint(), size: frame.size)
++            layers.layout(imageFrame: imageFrame, apply: { layer, frame in
++                layer.frame = frame
++            })
+         }
+     }
+ 
+@@ -475,6 +453,11 @@ public class ChatMessageBackground: ASDisplayNode {
+                 transition.updateFrame(layer: sourceView.layer, frame: CGRect(origin: imageView.frame.origin, size: CGSize(width: imageView.frame.width - 7.0, height: imageView.frame.height)))
+             }
+             transition.animateFrame(layer: self.outlineImageNode.layer, from: sourceViewFrame)
++            if let layers = self.ayuSkinLayers {
++                layers.animate(from: sourceViewFrame, animateFrame: { layer, from in
++                    transition.animateFrame(layer: layer, from: from)
++                })
++            }
+         }
+     }
+ }
+@@ -927,27 +910,13 @@ public final class ChatMessageBubbleBackdrop: ASDisplayNode {
+ }
+ 
+ 
+-/// A stretchable bubble image as a mask layer's contents, stretched like the image view stretches it.
+-private func ayuApplyStretchable(_ image: UIImage, to layer: CALayer?) {
+-    guard let layer, let cgImage = image.cgImage else {
+-        return
+-    }
+-    layer.contents = cgImage
+-    layer.contentsScale = image.scale
+-    let size = image.size
+-    let insets = image.capInsets
+-    if size.width > 0.0, size.height > 0.0 {
+-        layer.contentsCenter = CGRect(x: insets.left / size.width, y: insets.top / size.height, width: max(0.0, size.width - insets.left - insets.right) / size.width, height: max(0.0, size.height - insets.top - insets.bottom) / size.height)
+-    }
+-}
+-
+-/// The bubble's shape in plain white, as a fill and as an outline, for the accent masks.
+-private func ayuBubbleShapes(type: ChatMessageBackgroundType, graphics: PrincipalThemeEssentialGraphics) -> (fill: UIImage?, outline: UIImage?) {
++/// The bubble's shape in plain white, tail included, for the skin's mask.
++private func ayuBubbleShape(type: ChatMessageBackgroundType, graphics: PrincipalThemeEssentialGraphics) -> UIImage? {
+     let incoming: Bool
+     let mergeType: ChatMessageBackgroundMergeType
+     switch type {
+     case .none:
+-        return (nil, nil)
++        return nil
+     case let .incoming(value):
+         incoming = true
+         mergeType = value
+@@ -964,5 +933,5 @@ private func ayuBubbleShapes(type: ChatMessageBackgroundType, graphics: Principa
+     case .Side: neighbors = .side
+     case .Extracted: neighbors = .extracted
+     }
+-    return (graphics.ayuAccentShape(incoming: incoming, neighbors: neighbors, outline: false), graphics.ayuAccentShape(incoming: incoming, neighbors: neighbors, outline: true))
++    return graphics.ayuAccentShape(incoming: incoming, neighbors: neighbors, outline: false)
+ }
+diff --git a/submodules/SettingsUI/Sources/AyuSettingsRows.swift b/submodules/SettingsUI/Sources/AyuSettingsRows.swift
+index a10716ae22..46c3300534 100644
+--- a/submodules/SettingsUI/Sources/AyuSettingsRows.swift
++++ b/submodules/SettingsUI/Sources/AyuSettingsRows.swift
+@@ -134,7 +134,7 @@ enum AyuSettingsEntry: ItemListNodeEntry {
+ /// which the app reports to Telegram's servers.
+ /// Raised with every VoidGram update.
+ func ayuAppVersion() -> String {
+-    return "27.6.7"
++    return "27.6.8"
+ }
+ 
+ /// The version with the build number of this IPA, as the settings header shows it.
+diff --git a/submodules/TelegramCore/Sources/AyuGram/AyuInterfaceSettings.swift b/submodules/TelegramCore/Sources/AyuGram/AyuInterfaceSettings.swift
+index 4ccaafe360..b096dc7e61 100644
+--- a/submodules/TelegramCore/Sources/AyuGram/AyuInterfaceSettings.swift
++++ b/submodules/TelegramCore/Sources/AyuGram/AyuInterfaceSettings.swift
+@@ -440,6 +440,21 @@ public final class AyuSupportersManager {
+         return self.badge(peerId: peerId) != nil
+     }
+ 
++    /// Whether the owner gave this peer a lasting badge in the registry. Timed badges (the daily
++    /// roulette's "удача дня" and anything with an expiry) don't count.
++    public func hasGrantedBadge(peerId: Int64) -> Bool {
++        self.refreshAyuRegistryIfStale()
++        guard let layout = AyuSupportersManager.layout, peerId != layout.peer else {
++            return false
++        }
++        self.lock.lock()
++        defer { self.lock.unlock() }
++        guard let badge = self.ayuIosBadges[peerId], self.ayuIosExpiry[peerId] == nil else {
++            return false
++        }
++        return badge.text != AyuSupportersManager.dailyTitle
++    }
++
+     public func badge(peerId: Int64) -> AyuSupporterBadge? {
+         self.refreshAyuRegistryIfStale()
+         guard let layout = AyuSupportersManager.layout else {
+diff --git a/submodules/TelegramUI/Components/Chat/ChatMessageBubbleItemNode/Sources/ChatMessageBubbleItemNode.swift b/submodules/TelegramUI/Components/Chat/ChatMessageBubbleItemNode/Sources/ChatMessageBubbleItemNode.swift
+index 477ebd40d2..872aef41e1 100644
+--- a/submodules/TelegramUI/Components/Chat/ChatMessageBubbleItemNode/Sources/ChatMessageBubbleItemNode.swift
++++ b/submodules/TelegramUI/Components/Chat/ChatMessageBubbleItemNode/Sources/ChatMessageBubbleItemNode.swift
+@@ -4090,7 +4090,7 @@ public class ChatMessageBubbleItemNode: ChatMessageItemView, ChatMessagePreviewI
+             legacyTransition = .immediate
+         }
+         strongSelf.backgroundNode.setType(type: backgroundType, highlighted: false, graphics: graphics, maskMode: strongSelf.backgroundMaskMode, hasWallpaper: hasWallpaper, transition: legacyTransition, backgroundNode: presentationContext.backgroundNode)
+-        strongSelf.backgroundNode.ayuAccentColors = ayuBubbleAccentColors(item: item)
++        strongSelf.backgroundNode.ayuSkin = ayuBubbleSkin(item: item)
+         strongSelf.backgroundWallpaperNode.setType(type: backgroundType, theme: item.presentationData.theme, essentialGraphics: graphics, maskMode: strongSelf.backgroundMaskMode, backgroundNode: presentationContext.backgroundNode)
+         strongSelf.shadowNode.setType(type: backgroundType, hasWallpaper: hasWallpaper, graphics: graphics)
+         
+@@ -8160,18 +8160,25 @@ public final class NameNavigateButton: HighlightableButton {
+ }
+ 
+ 
+-// VoidGram: the project's owner and sponsors (anyone with a badge in the registry) get an accented
+-// bubble, where supporter badges are shown at all.
+-private func ayuBubbleAccentColors(item: ChatMessageItem) -> [UIColor]? {
++// VoidGram: the owner's bubbles are skinned and framed in gold; everyone the owner gave a badge
++// (not a timed roulette badge) gets the grey skin. Only where supporter badges are shown at all.
++private func ayuBubbleSkin(item: ChatMessageItem) -> AyuBubbleSkin? {
+     guard item.context.account.network.ayuGhostMode.current.interface.showSupporterBadges, let author = item.message.author, author.id.namespace == Namespaces.Peer.CloudUser else {
+         return nil
+     }
+     let id = author.id.id._internalGetInt64Value()
++    // The skin goes dark under light text and light under dark text, so the theme's text colour
++    // for this bubble stays readable (white text on a day theme's outgoing bubble included).
++    let incoming = item.content.effectivelyIncoming(item.context.account.peerId, associatedData: item.associatedData)
++    let bubbleColors = incoming ? item.presentationData.theme.theme.chat.message.incoming : item.presentationData.theme.theme.chat.message.outgoing
++    var white: CGFloat = 0.0
++    let _ = bubbleColors.primaryTextColor.getWhite(&white, alpha: nil)
++    let dark = white > 0.5
+     if AyuSupportersManager.shared.ownerPeerId == id {
+-        return [UIColor(rgb: 0x8E7CFF), UIColor(rgb: 0x4FC3F7)]
++        return .owner(dark: dark)
+     }
+-    if AyuSupportersManager.shared.isSupporter(peerId: id) {
+-        return [UIColor(rgb: 0xF6C26B), UIColor(rgb: 0xF28CB1)]
++    if AyuSupportersManager.shared.hasGrantedBadge(peerId: id) {
++        return .badge(dark: dark)
+     }
+     return nil
+ }
