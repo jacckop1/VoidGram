@@ -255,5 +255,7 @@
   "tools/ayu-tests/startup/main.swift",
   "submodules/TelegramCore/Sources/AyuGram/AyuFeatureGate.swift",
   "submodules/Display/Source/AyuFeatureGateUI.swift",
-  "submodules/ChatMessageBackground/Sources/AyuBubbleSkin.swift"
+  "submodules/ChatMessageBackground/Sources/AyuBubbleSkin.swift",
+  "submodules/TelegramUI/Sources/AyuVideoDownloader.swift",
+  "submodules/TelegramUI/Sources/AyuBackgroundKeepAlive.swift"
 ]

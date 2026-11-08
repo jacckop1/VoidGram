@@ -1,0 +1,781 @@
+diff --git a/submodules/Display/Source/AyuMediaSettings.swift b/submodules/Display/Source/AyuMediaSettings.swift
+index b40d37a6a2..4ac0d8865f 100644
+--- a/submodules/Display/Source/AyuMediaSettings.swift
++++ b/submodules/Display/Source/AyuMediaSettings.swift
+@@ -127,6 +127,34 @@ public enum AyuMediaSettings {
+         set { set(newValue, "noLivePreview") }
+     }
+ 
++    // MARK: Video downloads
++
++    /// The "Download video" panel for TikTok, YouTube and Instagram links in the message field.
++    public static var videoDownloader: Bool {
++        get { return !AyuDecoyMode.isActive && (UserDefaults.standard.object(forKey: key("videoDownloader")) as? Bool ?? true) }
++        set { set(newValue, "videoDownloader") }
++    }
++
++    /// A cobalt server (github.com/imputnet/cobalt) for YouTube and Instagram, and as TikTok's fallback.
++    public static var cobaltServer: String {
++        get { return string("cobaltServer") ?? "" }
++        set { set(newValue.trimmingCharacters(in: .whitespacesAndNewlines), "cobaltServer") }
++    }
++
++    public static var cobaltKey: String {
++        get { return string("cobaltKey") ?? "" }
++        set { set(newValue.trimmingCharacters(in: .whitespacesAndNewlines), "cobaltKey") }
++    }
++
++    // MARK: Background
++
++    /// Keeps the app running in the background with silent, mixable audio, so local notifications
++    /// keep arriving without push. Other apps' sound is not interrupted, no player is shown.
++    public static var backgroundKeepAlive: Bool {
++        get { return !AyuDecoyMode.isActive && UserDefaults.standard.bool(forKey: key("backgroundKeepAlive")) }
++        set { set(newValue, "backgroundKeepAlive") }
++    }
++
+     // MARK: Photo watermark
+ 
+     public static var watermarkEnabled: Bool {
+diff --git a/submodules/SettingsUI/Sources/AyuCategoryScreens.swift b/submodules/SettingsUI/Sources/AyuCategoryScreens.swift
+index ad60d4dfd8..2450ec24be 100644
+--- a/submodules/SettingsUI/Sources/AyuCategoryScreens.swift
++++ b/submodules/SettingsUI/Sources/AyuCategoryScreens.swift
+@@ -204,7 +204,12 @@ func ayuVideoMessagesController(context: AccountContext) -> ViewController {
+         .header(4, 30, ru ? "ВОДЯНОЙ ЗНАК НА ФОТО" : "PHOTO WATERMARK"),
+         .toggle(4, 31, symbol("signature", 0xAF52DE), ru ? "Водяной знак на фото" : "Watermark on photos", ru ? "На каждом отправляемом фото, до сжатия" : "On every outgoing photo, before compression", UserDefaults.standard.bool(forKey: "ayu.media.watermark")),
+         .link(4, 32, symbol("character.cursor.ibeam", 0xAF52DE), ru ? "Текст знака" : "Watermark text", AyuMediaSettings.watermarkText.isEmpty ? (ru ? "не задан" : "not set") : AyuMediaSettings.watermarkText),
+-        .link(4, 40, symbol("arrow.counterclockwise", 0xFF3B30), ru ? "Сбросить настройки кружков" : "Reset video message settings", "")
++        .link(4, 40, symbol("arrow.counterclockwise", 0xFF3B30), ru ? "Сбросить настройки кружков" : "Reset video message settings", ""),
++        .header(5, 50, ru ? "СКАЧИВАНИЕ ВИДЕО" : "VIDEO DOWNLOADS"),
++        .toggle(5, 51, symbol("arrow.down.circle.fill", 0x34C759), ru ? "«Скачать видео» по ссылке" : "“Download video” for links", ru ? "TikTok, YouTube и Instagram в поле сообщения" : "TikTok, YouTube and Instagram in the message field", AyuMediaSettings.videoDownloader),
++        .link(5, 52, symbol("server.rack", 0x007AFF), ru ? "Сервер cobalt" : "cobalt server", AyuMediaSettings.cobaltServer.isEmpty ? (ru ? "не задан" : "not set") : AyuMediaSettings.cobaltServer),
++        .link(5, 53, symbol("key.fill", 0x8E8E93), ru ? "Ключ API cobalt" : "cobalt API key", AyuMediaSettings.cobaltKey.isEmpty ? (ru ? "нет" : "none") : "••••"),
++        .info(5, 54, ru ? "TikTok качается бесплатно, без настройки. Для YouTube и Instagram нужен свой сервер cobalt (github.com/imputnet/cobalt) — публичных серверов без ключа сейчас нет." : "TikTok downloads for free with no setup. YouTube and Instagram need your own cobalt server (github.com/imputnet/cobalt): there are no public servers without a key right now.")
+     ] }, open: { id, push, present in
+         let ru = ayuIsRussian(context)
+         switch id {
+@@ -222,6 +227,22 @@ func ayuVideoMessagesController(context: AccountContext) -> ViewController {
+             present(alert)
+         case 4:
+             push(ayuMaskStudioController(context: context))
++        case 52, 53:
++            let alert = UIAlertController(title: id == 52 ? (ru ? "Сервер cobalt" : "cobalt server") : (ru ? "Ключ API cobalt" : "cobalt API key"), message: id == 52 ? (ru ? "Адрес API, например https://cobalt.example.com" : "API address, e.g. https://cobalt.example.com") : nil, preferredStyle: .alert)
++            alert.addTextField { field in
++                field.text = id == 52 ? AyuMediaSettings.cobaltServer : AyuMediaSettings.cobaltKey
++                field.placeholder = id == 52 ? "https://" : "Api-Key"
++                field.autocapitalizationType = .none
++                field.autocorrectionType = .no
++                field.keyboardType = id == 52 ? .URL : .default
++            }
++            alert.addAction(UIAlertAction(title: ru ? "Отмена" : "Cancel", style: .cancel))
++            alert.addAction(UIAlertAction(title: ru ? "Сохранить" : "Save", style: .default, handler: { [weak alert] _ in
++                let text = alert?.textFields?.first?.text ?? ""
++                if id == 52 { AyuMediaSettings.cobaltServer = text } else { AyuMediaSettings.cobaltKey = text }
++                NotificationCenter.default.post(name: ayuLocalSettingsChanged, object: nil)
++            }))
++            present(alert)
+         case 11:
+             ayuChoose(present, title: ru ? "Разрешение" : "Resolution", ru: ru, options: resolutions, current: AyuMediaSettings.resolution, label: { resolutionLabel($0, ru) }, equal: { $0 == $1 }, pick: { AyuMediaSettings.resolution = $0 })
+         case 12:
+@@ -250,6 +271,7 @@ func ayuVideoMessagesController(context: AccountContext) -> ViewController {
+         case 24: AyuWhiteGram.set(value, forKey: "hideGalleryCamera")
+         case 25: AyuMediaSettings.noLivePreview = value
+         case 31: AyuMediaSettings.watermarkEnabled = value
++        case 51: AyuMediaSettings.videoDownloader = value
+         default: break
+         }
+     })
+@@ -405,6 +427,8 @@ func ayuLocalNotificationsController(context: AccountContext) -> ViewController
+             .toggle(1, 2, nil, ru ? "Группировать по чату" : "Group by chat", nil, settings.groupByChat),
+             .toggle(1, 3, nil, ru ? "Аватар отправителя" : "Sender avatar", ru ? "Используется загруженная фотография. При скрытом тексте аватар не показывается." : "Uses the cached photo. Hidden previews also hide the avatar.", settings.avatars),
+             .toggle(1, 4, nil, ru ? "Ответить и прочитать" : "Reply and mark read", ru ? "Действия требуют разблокировки устройства" : "Actions require device authentication", settings.actions),
++            .toggle(1, 5, symbol("waveform", 0x34C759), ru ? "Работа в фоне" : "Work in the background", ru ? "Приложение не засыпает, уведомления приходят без push" : "The app stays awake, notifications arrive without push", AyuMediaSettings.backgroundKeepAlive),
++            .info(1, 6, ru ? "В фоне VoidGram проигрывает тишину: iOS не усыпляет приложение, и сообщения приходят сразу. Звук других приложений (TikTok, музыка) не прерывается, плеер нигде не показывается. Расходует больше батареи." : "In the background VoidGram plays silence: iOS keeps the app awake and messages arrive at once. Other apps' sound (TikTok, music) isn't interrupted and no player is shown anywhere. Uses more battery."),
+             .header(2, 10, ru ? "ТИХИЕ ЧАСЫ" : "QUIET HOURS"),
+             .toggle(2, 11, nil, ru ? "Без звука по расписанию" : "Scheduled silent delivery", nil, settings.quietHours),
+             .link(2, 12, nil, ru ? "Начало и конец" : "Start and end", AyuLocalNotificationSettings.clock(settings.quietStart) + "–" + AyuLocalNotificationSettings.clock(settings.quietEnd)),
+@@ -445,6 +469,7 @@ func ayuLocalNotificationsController(context: AccountContext) -> ViewController
+         present(alert)
+     }, toggle: { id, value in
+         if id == 1 { try? context.account.network.ayuGhostMode.update { $0.interface.backgroundNotifications = value }; return }
++        if id == 5 { AyuMediaSettings.backgroundKeepAlive = value; NotificationCenter.default.post(name: ayuLocalSettingsChanged, object: nil); return }
+         if id == 21 { AyuExtras.set(.notifyDeleted, value); return }
+         if id == 22 { UserDefaults.standard.set(value, forKey: "ayu.extra.notifyEdited"); return }
+         if let key = [2: "groupByChat", 3: "avatars", 4: "actions", 11: "quietHours", 23: "filterEnabled"][Int(id)] {
+diff --git a/submodules/SettingsUI/Sources/AyuSettingsRows.swift b/submodules/SettingsUI/Sources/AyuSettingsRows.swift
+index e00933af54..9af412e2f9 100644
+--- a/submodules/SettingsUI/Sources/AyuSettingsRows.swift
++++ b/submodules/SettingsUI/Sources/AyuSettingsRows.swift
+@@ -134,7 +134,7 @@ enum AyuSettingsEntry: ItemListNodeEntry {
+ /// which the app reports to Telegram's servers.
+ /// Raised with every VoidGram update.
+ func ayuAppVersion() -> String {
+-    return "27.6.9"
++    return "27.7.0"
+ }
+ 
+ /// The version with the build number of this IPA, as the settings header shows it.
+diff --git a/submodules/TelegramUI/Components/Chat/ChatInputMessageAccessoryPanel/Sources/ChatInputMessageAccessoryPanel.swift b/submodules/TelegramUI/Components/Chat/ChatInputMessageAccessoryPanel/Sources/ChatInputMessageAccessoryPanel.swift
+index 95a9ccb7f0..b6bd241d8e 100644
+--- a/submodules/TelegramUI/Components/Chat/ChatInputMessageAccessoryPanel/Sources/ChatInputMessageAccessoryPanel.swift
++++ b/submodules/TelegramUI/Components/Chat/ChatInputMessageAccessoryPanel/Sources/ChatInputMessageAccessoryPanel.swift
+@@ -269,11 +269,27 @@ public final class ChatInputMessageAccessoryPanel: Component {
+             }
+         }
+ 
++        /// VoidGram: "Download video" for a TikTok, YouTube or Instagram link in the message field.
++        public final class VideoDownload: Equatable {
++            public let url: String
++            public let service: String
++
++            public init(url: String, service: String) {
++                self.url = url
++                self.service = service
++            }
++
++            public static func ==(lhs: VideoDownload, rhs: VideoDownload) -> Bool {
++                return lhs.url == rhs.url && lhs.service == rhs.service
++            }
++        }
++
+         case reply(Reply)
+         case edit(Edit)
+         case forward(Forward)
+         case linkPreview(LinkPreview)
+         case suggestPost(SuggestPost)
++        case videoDownload(VideoDownload)
+     }
+     
+     let context: AccountContext
+@@ -721,7 +737,7 @@ public final class ChatInputMessageAccessoryPanel: Component {
+                 messageIds = self.deckMessageIds.isEmpty ? [reply.id] : [self.deckMessageIds[self.deckActiveIndex]]
+             case let .forward(forward):
+                 messageIds = forward.messageIds
+-            case .linkPreview, .suggestPost:
++            case .linkPreview, .suggestPost, .videoDownload:
+                 messageIds = []
+             }
+ 
+@@ -1140,6 +1156,10 @@ public final class ChatInputMessageAccessoryPanel: Component {
+                 
+                 titleText = [.text(NSAttributedString(string: authorName, font: Font.medium(14.0), textColor: environment.theme.chat.inputPanel.panelControlAccentColor))]
+                 textString = NSAttributedString(string: text, font: Font.regular(14.0), textColor: environment.theme.chat.inputPanel.primaryTextColor)
++            case let .videoDownload(videoDownload):
++                let ru = environment.strings.baseLanguageCode.hasPrefix("ru")
++                titleText = [.text(NSAttributedString(string: ru ? "Скачать видео" : "Download video", font: Font.medium(14.0), textColor: environment.theme.chat.inputPanel.panelControlAccentColor))]
++                textString = NSAttributedString(string: videoDownload.service, font: Font.regular(14.0), textColor: environment.theme.chat.inputPanel.primaryTextColor)
+             case let .suggestPost(suggestPost):
+                 if suggestPost.state.editingOriginalMessageId != nil {
+                     titleText.append(.text(NSAttributedString(string: environment.strings.Chat_PostSuggestion_Suggest_InputEditTitle, font: Font.medium(14.0), textColor: environment.theme.chat.inputPanel.panelControlAccentColor)))
+diff --git a/submodules/TelegramUI/Sources/AppDelegate.swift b/submodules/TelegramUI/Sources/AppDelegate.swift
+index 9271189b1f..01b5ff6e2b 100644
+--- a/submodules/TelegramUI/Sources/AppDelegate.swift
++++ b/submodules/TelegramUI/Sources/AppDelegate.swift
+@@ -932,6 +932,8 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
+             }
+             |> distinctUntilChanged
+         )
++        // VoidGram: silent background audio, when "Work in the background" is on.
++        AyuBackgroundKeepAlive.shared.start(telegramAudioActive: self.hasActiveAudioSession.get())
+         
+         let applicationBindings = TelegramApplicationBindings(isMainApp: true, appBundleId: baseAppBundleId, appBuildType: buildConfig.isAppStoreBuild ? .public : .internal, containerPath: appGroupUrl.path, appSpecificScheme: buildConfig.appSpecificUrlScheme, openUrl: { url in
+             var parsedUrl = URL(string: url)
+diff --git a/submodules/TelegramUI/Sources/AyuBackgroundKeepAlive.swift b/submodules/TelegramUI/Sources/AyuBackgroundKeepAlive.swift
+new file mode 100644
+index 0000000000..6dbfa2a2d5
+--- /dev/null
++++ b/submodules/TelegramUI/Sources/AyuBackgroundKeepAlive.swift
+@@ -0,0 +1,158 @@
++import Foundation
++import UIKit
++import AVFoundation
++import Display
++import SwiftSignalKit
++
++/// "Work in the background" (VoidGram → Local notifications): while the app is in the background,
++/// it plays silence through a mixable audio session. iOS keeps an app that plays audio running,
++/// so the connection stays up and AyuBackgroundNotifications shows new messages without push.
++///
++/// The session mixes with others: TikTok, music and videos in other apps play as usual and are
++/// never paused by it. No Now Playing info is published, so no player appears on the lock screen
++/// or in Control Centre. When Telegram itself plays or records audio, its own session keeps the
++/// app awake and this one stays out of the way.
++final class AyuBackgroundKeepAlive {
++    static let shared = AyuBackgroundKeepAlive()
++
++    /// Whether the silent audio is playing; SharedWakeupManager keeps accounts connected meanwhile.
++    let isRunning = ValuePromise<Bool>(false, ignoreRepeated: true)
++
++    private var engine: AVAudioEngine?
++    private var player: AVAudioPlayerNode?
++    private var running = false
++    private var started = false
++    private var telegramAudioActive = false
++    private var telegramAudioDisposable: Disposable?
++    private var observers: [NSObjectProtocol] = []
++    private var watchdog: SwiftSignalKit.Timer?
++    private var engineObserver: NSObjectProtocol?
++
++    private init() {
++    }
++
++    /// Called once at launch with Telegram's own audio session activity.
++    func start(telegramAudioActive: Signal<Bool, NoError>) {
++        guard !self.started else {
++            return
++        }
++        self.started = true
++
++        self.telegramAudioDisposable = (telegramAudioActive
++        |> deliverOnMainQueue).start(next: { [weak self] active in
++            guard let self else { return }
++            self.telegramAudioActive = active
++            if active, self.running {
++                // Telegram's session took over the shared AVAudioSession; it keeps the app awake now.
++                self.stopEngine(deactivate: false)
++            }
++            self.update()
++        })
++
++        let center = NotificationCenter.default
++        let names: [Notification.Name] = [
++            UIApplication.didEnterBackgroundNotification,
++            UIApplication.willEnterForegroundNotification,
++            UIApplication.didBecomeActiveNotification,
++            AyuMediaSettings.didChangeNotification
++        ]
++        for name in names {
++            self.observers.append(center.addObserver(forName: name, object: nil, queue: .main, using: { [weak self] _ in
++                self?.update()
++            }))
++        }
++        self.observers.append(center.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main, using: { [weak self] notification in
++            guard let self, let raw = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt, let type = AVAudioSession.InterruptionType(rawValue: raw) else {
++                return
++            }
++            if type == .began {
++                self.stopEngine(deactivate: false)
++            } else {
++                self.update()
++            }
++        }))
++        self.observers.append(center.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: .main, using: { [weak self] _ in
++            self?.stopEngine(deactivate: false)
++            self?.update()
++        }))
++        self.update()
++    }
++
++    private var shouldRun: Bool {
++        return AyuMediaSettings.backgroundKeepAlive && UIApplication.shared.applicationState != .active && !self.telegramAudioActive
++    }
++
++    private func update() {
++        if self.shouldRun {
++            if !self.running || self.engine?.isRunning != true {
++                self.startEngine()
++            }
++        } else if self.running {
++            self.stopEngine(deactivate: !self.telegramAudioActive)
++        }
++    }
++
++    private func startEngine() {
++        self.stopEngine(deactivate: false)
++        let session = AVAudioSession.sharedInstance()
++        do {
++            try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
++            try session.setActive(true, options: [])
++        } catch {
++            return
++        }
++
++        let engine = AVAudioEngine()
++        let player = AVAudioPlayerNode()
++        engine.attach(player)
++        let format = AVAudioFormat(standardFormatWithSampleRate: 44100.0, channels: 1)!
++        engine.connect(player, to: engine.mainMixerNode, format: format)
++        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 44100) else {
++            return
++        }
++        // One second of zeros, looped: inaudible, and the cheapest thing that keeps audio running.
++        buffer.frameLength = buffer.frameCapacity
++        do {
++            try engine.start()
++        } catch {
++            return
++        }
++        player.scheduleBuffer(buffer, at: nil, options: .loops, completionHandler: nil)
++        player.play()
++
++        self.engine = engine
++        self.player = player
++        self.running = true
++        self.isRunning.set(true)
++
++        self.engineObserver = NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main, using: { [weak self] _ in
++            // A route change (headphones, Bluetooth) stops the engine; start it again.
++            self?.update()
++        })
++        // iOS may stop the engine without telling; check it twice a minute.
++        let watchdog = SwiftSignalKit.Timer(timeout: 30.0, repeat: true, completion: { [weak self] in
++            self?.update()
++        }, queue: .mainQueue())
++        self.watchdog = watchdog
++        watchdog.start()
++    }
++
++    private func stopEngine(deactivate: Bool) {
++        if let engineObserver = self.engineObserver {
++            NotificationCenter.default.removeObserver(engineObserver)
++            self.engineObserver = nil
++        }
++        self.watchdog?.invalidate()
++        self.watchdog = nil
++        self.player?.stop()
++        self.engine?.stop()
++        self.player = nil
++        self.engine = nil
++        let wasRunning = self.running
++        self.running = false
++        self.isRunning.set(false)
++        if wasRunning && deactivate {
++            try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
++        }
++    }
++}
+diff --git a/submodules/TelegramUI/Sources/AyuVideoDownloader.swift b/submodules/TelegramUI/Sources/AyuVideoDownloader.swift
+new file mode 100644
+index 0000000000..469aec5b18
+--- /dev/null
++++ b/submodules/TelegramUI/Sources/AyuVideoDownloader.swift
+@@ -0,0 +1,377 @@
++import Foundation
++import UIKit
++import Photos
++import AVFoundation
++import Display
++import TelegramCore
++import SwiftSignalKit
++import AccountContext
++import OverlayStatusController
++import PresentationDataUtils
++import ChatInterfaceState
++import ChatPresentationInterfaceState
++
++/// "Download video": a TikTok, YouTube or Instagram link typed in the message field shows a panel
++/// above it; tapping it downloads the video and saves it to the photo library or sends it to the
++/// chat. TikTok goes through tikwm.com (free, no key). YouTube and Instagram need a cobalt server
++/// (github.com/imputnet/cobalt) set in VoidGram → Video messages & camera; TikTok falls back to it too.
++enum AyuVideoDownloader {
++    enum Service: String {
++        case tiktok, youtube, instagram
++
++        var title: String {
++            switch self {
++            case .tiktok: return "TikTok"
++            case .youtube: return "YouTube"
++            case .instagram: return "Instagram"
++            }
++        }
++
++        static func of(_ url: URL) -> Service? {
++            guard let host = url.host?.lowercased() else {
++                return nil
++            }
++            let path = url.path.lowercased()
++            func matches(_ domain: String) -> Bool {
++                return host == domain || host.hasSuffix("." + domain)
++            }
++            if matches("tiktok.com") {
++                return .tiktok
++            }
++            if matches("youtu.be") {
++                return path.count > 1 ? .youtube : nil
++            }
++            if matches("youtube.com") {
++                return (path.hasPrefix("/watch") || path.hasPrefix("/shorts/") || path.hasPrefix("/live/")) ? .youtube : nil
++            }
++            if matches("instagram.com") {
++                return (path.hasPrefix("/reel") || path.hasPrefix("/p/") || path.hasPrefix("/tv/")) ? .instagram : nil
++            }
++            return nil
++        }
++    }
++
++    struct Link: Equatable {
++        let url: String
++        let service: Service
++    }
++
++    /// Links the user closed the panel for, until the app restarts.
++    private(set) static var dismissed = Set<String>()
++
++    static func dismiss(_ link: Link) {
++        dismissed.insert(link.url)
++    }
++
++    /// The first supported video link in the message field's text.
++    static func link(in text: String) -> Link? {
++        guard AyuMediaSettings.videoDownloader, !text.isEmpty, text.count < 4096, let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else {
++            return nil
++        }
++        for match in detector.matches(in: text, options: [], range: NSRange(text.startIndex..., in: text)) {
++            guard let url = match.url, let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https", let service = Service.of(url) else {
++                continue
++            }
++            let string = url.absoluteString
++            if dismissed.contains(string) {
++                return nil
++            }
++            return Link(url: string, service: service)
++        }
++        return nil
++    }
++
++    enum Failure: Error {
++        case needsServer
++        case notVideo
++        case service(String)
++        case network
++
++        func text(_ ru: Bool) -> String {
++            switch self {
++            case .needsServer:
++                return ru ? "Для YouTube и Instagram нужен сервер cobalt. Укажи его адрес в настройках VoidGram: Кружки и камера → Скачивание видео." : "YouTube and Instagram need a cobalt server. Set its address in VoidGram settings: Video messages & camera → Video downloads."
++            case .notVideo:
++                return ru ? "По ссылке нет видео (например, это фотографии)." : "There's no video at this link (it may be photos)."
++            case let .service(message):
++                return (ru ? "Сервис не отдал видео: " : "The service returned no video: ") + message
++            case .network:
++                return ru ? "Не удалось скачать видео. Проверь интернет и попробуй ещё раз." : "Couldn't download the video. Check the connection and try again."
++            }
++        }
++    }
++
++    private static let session: URLSession = {
++        let configuration = URLSessionConfiguration.ephemeral
++        configuration.timeoutIntervalForRequest = 30.0
++        configuration.timeoutIntervalForResource = 600.0
++        configuration.httpAdditionalHeaders = ["User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"]
++        return URLSession(configuration: configuration)
++    }()
++
++    // MARK: Resolving the direct video URL
++
++    private static func resolve(_ link: Link, completion: @escaping (Result<URL, Failure>) -> Void) {
++        let cobalt = AyuMediaSettings.cobaltServer
++        if link.service == .tiktok {
++            resolveTikTok(link.url, completion: { result in
++                if case .failure(.notVideo) = result {
++                    completion(result)
++                } else if case .failure = result, !cobalt.isEmpty {
++                    resolveCobalt(link.url, server: cobalt, completion: completion)
++                } else {
++                    completion(result)
++                }
++            })
++        } else if cobalt.isEmpty {
++            completion(.failure(.needsServer))
++        } else {
++            resolveCobalt(link.url, server: cobalt, completion: completion)
++        }
++    }
++
++    private static func resolveTikTok(_ url: String, completion: @escaping (Result<URL, Failure>) -> Void) {
++        var components = URLComponents(string: "https://www.tikwm.com/api/")!
++        components.queryItems = [URLQueryItem(name: "url", value: url), URLQueryItem(name: "hd", value: "1")]
++        session.dataTask(with: components.url!) { data, _, _ in
++            guard let data, let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
++                completion(.failure(.network))
++                return
++            }
++            guard (json["code"] as? Int) == 0, let payload = json["data"] as? [String: Any] else {
++                completion(.failure(.service((json["msg"] as? String) ?? "tikwm")))
++                return
++            }
++            if let images = payload["images"] as? [Any], !images.isEmpty {
++                completion(.failure(.notVideo))
++                return
++            }
++            let candidates = [payload["hdplay"], payload["play"]].compactMap { $0 as? String }.filter { !$0.isEmpty }
++            guard let play = candidates.first else {
++                completion(.failure(.notVideo))
++                return
++            }
++            let absolute = play.hasPrefix("http") ? play : "https://www.tikwm.com" + (play.hasPrefix("/") ? play : "/" + play)
++            guard let result = URL(string: absolute) else {
++                completion(.failure(.notVideo))
++                return
++            }
++            completion(.success(result))
++        }.resume()
++    }
++
++    /// cobalt API (v10+): POST / with {"url": …}; the answer is a tunnel/redirect URL or a picker.
++    private static func resolveCobalt(_ url: String, server: String, completion: @escaping (Result<URL, Failure>) -> Void) {
++        var base = server.trimmingCharacters(in: .whitespacesAndNewlines)
++        if !base.lowercased().hasPrefix("http") {
++            base = "https://" + base
++        }
++        guard let endpoint = URL(string: base.hasSuffix("/") ? base : base + "/") else {
++            completion(.failure(.needsServer))
++            return
++        }
++        var request = URLRequest(url: endpoint)
++        request.httpMethod = "POST"
++        request.setValue("application/json", forHTTPHeaderField: "Accept")
++        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
++        let key = AyuMediaSettings.cobaltKey
++        if !key.isEmpty {
++            request.setValue("Api-Key " + key, forHTTPHeaderField: "Authorization")
++        }
++        request.httpBody = try? JSONSerialization.data(withJSONObject: ["url": url, "videoQuality": "1080", "youtubeVideoCodec": "h264", "filenameStyle": "basic"])
++        session.dataTask(with: request) { data, _, _ in
++            guard let data, let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any], let status = json["status"] as? String else {
++                completion(.failure(.network))
++                return
++            }
++            switch status {
++            case "tunnel", "redirect", "stream":
++                if let string = json["url"] as? String, let result = URL(string: string) {
++                    completion(.success(result))
++                } else {
++                    completion(.failure(.notVideo))
++                }
++            case "picker":
++                let items = (json["picker"] as? [[String: Any]]) ?? []
++                if let video = items.first(where: { ($0["type"] as? String) == "video" || ($0["type"] as? String) == "gif" }), let string = video["url"] as? String, let result = URL(string: string) {
++                    completion(.success(result))
++                } else {
++                    completion(.failure(.notVideo))
++                }
++            default:
++                let code = ((json["error"] as? [String: Any])?["code"] as? String) ?? status
++                completion(.failure(.service(code)))
++            }
++        }.resume()
++    }
++
++    // MARK: Downloading
++
++    private static func download(_ url: URL, completion: @escaping (Result<URL, Failure>) -> Void) -> URLSessionDownloadTask {
++        let task = session.downloadTask(with: url) { location, response, _ in
++            guard let location, let http = response as? HTTPURLResponse, (200 ..< 300).contains(http.statusCode) else {
++                completion(.failure(.network))
++                return
++            }
++            if let type = http.mimeType?.lowercased(), type.hasPrefix("text/") || type.contains("json") {
++                completion(.failure(.notVideo))
++                return
++            }
++            let target = FileManager.default.temporaryDirectory.appendingPathComponent("voidgram_video_\(Int64.random(in: 1 ... Int64.max)).mp4")
++            do {
++                try FileManager.default.moveItem(at: location, to: target)
++                completion(.success(target))
++            } catch {
++                completion(.failure(.network))
++            }
++        }
++        task.resume()
++        return task
++    }
++
++    // MARK: Flow
++
++    enum Destination {
++        case gallery
++        case chat
++    }
++
++    /// The panel's tap: asks where the video goes, then downloads it there.
++    static func presentActions(_ link: Link, chat: ChatControllerImpl) {
++        let ru = chat.presentationData.strings.baseLanguageCode.hasPrefix("ru")
++        let sheet = UIAlertController(title: ru ? "Скачать видео" : "Download video", message: link.service.title, preferredStyle: .actionSheet)
++        sheet.addAction(UIAlertAction(title: ru ? "Сохранить в галерею" : "Save to Photos", style: .default, handler: { [weak chat] _ in
++            if let chat {
++                run(link, destination: .gallery, chat: chat)
++            }
++        }))
++        sheet.addAction(UIAlertAction(title: ru ? "Отправить в чат" : "Send to the chat", style: .default, handler: { [weak chat] _ in
++            if let chat {
++                run(link, destination: .chat, chat: chat)
++            }
++        }))
++        sheet.addAction(UIAlertAction(title: ru ? "Отмена" : "Cancel", style: .cancel))
++        if let popover = sheet.popoverPresentationController {
++            popover.sourceView = chat.view
++            popover.sourceRect = CGRect(x: chat.view.bounds.midX, y: chat.view.bounds.maxY - 120.0, width: 1.0, height: 1.0)
++        }
++        chat.context.sharedContext.applicationBindings.presentNativeController(sheet)
++    }
++
++    private static func run(_ link: Link, destination: Destination, chat: ChatControllerImpl) {
++        let context = chat.context
++        let presentationData = chat.presentationData
++        let ru = presentationData.strings.baseLanguageCode.hasPrefix("ru")
++        var cancelled = false
++        var task: URLSessionDownloadTask?
++        let status = OverlayStatusController(theme: presentationData.theme, type: .loading(cancelled: {
++            cancelled = true
++            task?.cancel()
++        }))
++        chat.present(status, in: .window(.root))
++
++        func fail(_ failure: Failure) {
++            DispatchQueue.main.async {
++                status.dismiss()
++                if !cancelled {
++                    AyuOnlineTools.present(context, title: ru ? "Скачать видео" : "Download video", message: failure.text(ru))
++                }
++            }
++        }
++
++        resolve(link, completion: { result in
++            switch result {
++            case let .failure(failure):
++                fail(failure)
++            case let .success(direct):
++                DispatchQueue.main.async {
++                    guard !cancelled else { return }
++                    task = download(direct, completion: { result in
++                        switch result {
++                        case let .failure(failure):
++                            fail(failure)
++                        case let .success(file):
++                            DispatchQueue.main.async {
++                                guard !cancelled else {
++                                    try? FileManager.default.removeItem(at: file)
++                                    return
++                                }
++                                switch destination {
++                                case .gallery:
++                                    saveToGallery(file, completion: { saved in
++                                        status.dismiss()
++                                        try? FileManager.default.removeItem(at: file)
++                                        let done = OverlayStatusController(theme: presentationData.theme, type: saved ? .success : .genericSuccess(ru ? "Нет доступа к галерее" : "No access to Photos", false))
++                                        context.sharedContext.mainWindow?.present(done, on: .root)
++                                    })
++                                case .chat:
++                                    status.dismiss()
++                                    send(file, link: link, chat: chat)
++                                }
++                            }
++                        }
++                    })
++                }
++            }
++        })
++    }
++
++    private static func saveToGallery(_ file: URL, completion: @escaping (Bool) -> Void) {
++        let perform = {
++            PHPhotoLibrary.shared().performChanges({
++                PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: file)
++            }, completionHandler: { success, _ in
++                DispatchQueue.main.async {
++                    completion(success)
++                }
++            })
++        }
++        PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
++            if status == .authorized || status == .limited {
++                perform()
++            } else {
++                DispatchQueue.main.async {
++                    completion(false)
++                }
++            }
++        }
++    }
++
++    /// Sends the file as a regular streaming video and takes the link out of the message field.
++    private static func send(_ file: URL, link: Link, chat: ChatControllerImpl) {
++        let asset = AVURLAsset(url: file)
++        var dimensions = PixelDimensions(width: 720, height: 1280)
++        if let track = asset.tracks(withMediaType: .video).first {
++            let size = track.naturalSize.applying(track.preferredTransform)
++            dimensions = PixelDimensions(width: Int32(abs(size.width)), height: Int32(abs(size.height)))
++        }
++        let duration = max(0.0, CMTimeGetSeconds(asset.duration))
++        let id = Int64.random(in: Int64.min ... Int64.max)
++        let size = (try? FileManager.default.attributesOfItem(atPath: file.path)[.size] as? NSNumber)?.int64Value
++        let media = TelegramMediaFile(fileId: EngineMedia.Id(namespace: Namespaces.Media.LocalFile, id: id), partialReference: nil, resource: LocalFileReferenceMediaResource(localFilePath: file.path, randomId: id), previewRepresentations: [], videoThumbnails: [], immediateThumbnailData: nil, mimeType: "video/mp4", size: size, attributes: [.FileName(fileName: "\(link.service.rawValue)_video.mp4"), .Video(duration: duration.isFinite ? duration : 0.0, size: dimensions, flags: [.supportsStreaming], preloadSize: nil, coverTime: nil, videoCodec: nil)], alternativeRepresentations: [])
++        chat.sendMessages([.message(text: "", attributes: [], inlineStickers: [:], mediaReference: .standalone(media: media), threadId: chat.chatLocation.threadId, replyToMessageId: nil, replyToStoryId: nil, localGroupingKey: nil, correlationId: nil, bubbleUpEmojiOrStickersets: [])])
++        removeLink(link, chat: chat)
++    }
++
++    private static func removeLink(_ link: Link, chat: ChatControllerImpl) {
++        chat.updateChatPresentationInterfaceState(animated: true, interactive: true, { state in
++            return state.updatedInterfaceState { interfaceState in
++                let text = interfaceState.effectiveInputState.inputText
++                let range = (text.string as NSString).range(of: link.url)
++                guard range.location != NSNotFound else {
++                    return interfaceState
++                }
++                let updated = NSMutableAttributedString(attributedString: text)
++                updated.replaceCharacters(in: range, with: "")
++                let trimmed = updated.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? NSAttributedString() : updated
++                return interfaceState.withUpdatedEffectiveInputState(ChatTextInputState(inputText: trimmed))
++            }
++        })
++    }
++
++    /// Hides the panel for this link, keeping the text.
++    static func dismissPanel(_ link: Link, chat: ChatControllerImpl?) {
++        dismiss(link)
++        chat?.updateChatPresentationInterfaceState(animated: true, interactive: false, { $0 })
++    }
++}
+diff --git a/submodules/TelegramUI/Sources/ChatInterfaceStateAccessoryPanels.swift b/submodules/TelegramUI/Sources/ChatInterfaceStateAccessoryPanels.swift
+index d6f658a895..e91187d34a 100644
+--- a/submodules/TelegramUI/Sources/ChatInterfaceStateAccessoryPanels.swift
++++ b/submodules/TelegramUI/Sources/ChatInterfaceStateAccessoryPanels.swift
+@@ -80,6 +80,27 @@ func textInputAccessoryPanel(
+                 interfaceInteraction?.setupEditMessage(nil, { _ in })
+             }
+         )))
++    } else if chatPresentationInterfaceState.interfaceState.forwardMessageIds == nil, chatPresentationInterfaceState.interfaceState.postSuggestionState == nil, let videoLink = AyuVideoDownloader.link(in: chatPresentationInterfaceState.interfaceState.composeInputState.inputText.string) {
++        // VoidGram: a TikTok, YouTube or Instagram link offers to download the video.
++        var previousTapTimestamp: Double?
++        return AnyComponentWithIdentity(id: "ayuVideoDownload", component: AnyComponent(ChatInputMessageAccessoryPanel(
++            context: context,
++            contents: .videoDownload(ChatInputMessageAccessoryPanel.Contents.VideoDownload(url: videoLink.url, service: videoLink.service.title)),
++            chatPeerId: chatPresentationInterfaceState.chatLocation.peerId,
++            action: { _ in
++                let timestamp = CFAbsoluteTimeGetCurrent()
++                if let previousTapTimestamp, previousTapTimestamp + 1.0 > timestamp {
++                    return
++                }
++                previousTapTimestamp = timestamp
++                if let chat = interfaceInteraction?.chatController() as? ChatControllerImpl {
++                    AyuVideoDownloader.presentActions(videoLink, chat: chat)
++                }
++            },
++            dismiss: { _ in
++                AyuVideoDownloader.dismissPanel(videoLink, chat: interfaceInteraction?.chatController() as? ChatControllerImpl)
++            }
++        )))
+     } else if let urlPreview = chatPresentationInterfaceState.urlPreview, !chatPresentationInterfaceState.interfaceState.composeDisableUrlPreviews.contains(urlPreview.url) {
+         var previousTapTimestamp: Double?
+         return AnyComponentWithIdentity(id: "linkPreview", component: AnyComponent(ChatInputMessageAccessoryPanel(
+diff --git a/submodules/TelegramUI/Sources/SharedWakeupManager.swift b/submodules/TelegramUI/Sources/SharedWakeupManager.swift
+index 378c01ed0d..da30594b49 100644
+--- a/submodules/TelegramUI/Sources/SharedWakeupManager.swift
++++ b/submodules/TelegramUI/Sources/SharedWakeupManager.swift
+@@ -238,9 +238,11 @@ public final class SharedWakeupManager {
+                 }
+                 |> distinctUntilChanged
+                 
+-                let hasActiveAudio = combineLatest(queue: .mainQueue(), isPlayingBackgroundAudio, isPlayingBackgroundActiveCall)
+-                |> map { isPlayingBackgroundAudio, isPlayingBackgroundActiveCall in
+-                    return isPlayingBackgroundAudio || isPlayingBackgroundActiveCall
++                // VoidGram: the silent background audio (AyuBackgroundKeepAlive) keeps updates
++                // flowing like music playback does.
++                let hasActiveAudio = combineLatest(queue: .mainQueue(), isPlayingBackgroundAudio, isPlayingBackgroundActiveCall, AyuBackgroundKeepAlive.shared.isRunning.get())
++                |> map { isPlayingBackgroundAudio, isPlayingBackgroundActiveCall, ayuKeepAlive in
++                    return isPlayingBackgroundAudio || isPlayingBackgroundActiveCall || ayuKeepAlive
+                 }
+                 |> distinctUntilChanged
+                 
