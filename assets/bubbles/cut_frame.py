@@ -40,12 +40,34 @@ frame = Image.fromarray(rgba[y0:y1, x0:x1], "RGBA")
 fw, fh = frame.size
 frame.save(f"{out}/frame-cutout.png")
 
-# Border thickness in source pixels (left side) and the on-screen thickness we want.
-border = 81.0
-point_thickness = 7.0
+# The photo's rails differ (top ~68 px, sides ~81 px). Measure them from the opening and
+# resample the top and bottom bands to the side's thickness, so the frame is even all round.
+fa = np.asarray(frame)
+opening = fa[..., 3] < 128
+olab, _ = ndimage.label(opening)
+inner = olab == olab[fh // 2, fw // 2]
+iys, ixs = np.where(inner)
+top_t, bottom_t, left_t = iys.min(), fh - 1 - iys.max(), ixs.min()
+border = float(left_t)
+def remap_rows(img, top, bottom, target):
+    rows = []
+    def band(y0, y1, n):
+        part = img.crop((0, y0, img.width, y1))
+        return part.resize((img.width, n), Image.LANCZOS)
+    middle = img.crop((0, top, img.width, img.height - bottom))
+    out = Image.new("RGBA", (img.width, target * 2 + middle.height), (0, 0, 0, 0))
+    out.paste(band(0, top, target), (0, 0))
+    out.paste(middle, (0, target))
+    out.paste(band(img.height - bottom, img.height, target), (0, target + middle.height))
+    return out
+frame = remap_rows(frame, top_t, bottom_t, left_t)
+fw, fh = frame.size
+frame.save(f"{out}/frame-cutout.png")
+
+point_thickness = 6.0
 scale = point_thickness * 3.0 / border  # source px -> @3x px
 
-corner_w, corner_h = 160, 140          # corner ornaments, source px
+corner_w, corner_h = 160, 160          # corner ornaments, source px
 top_strip_x = 420                       # plain moulding column on top/bottom
 side = np.asarray(frame)[:, :90, :3].astype(np.float32)
 # Plainest row of the left side between the corner ornaments: least change to the next row.
@@ -104,4 +126,4 @@ top, bottom = feather(top), feather(bottom)
 scaled(top).save(f"{out}/VoidGramBubbleFrameTop@3x.png", optimize=True)
 scaled(bottom).save(f"{out}/VoidGramBubbleFrameBottom@3x.png", optimize=True)
 
-print("frame", fw, fh, "side strip", side_strip_y, "nine", nine.size, "cap px", round(corner_w * scale), round(corner_h * scale), "orn", scaled(top).size)
+print("bands", top_t, bottom_t, left_t, "frame", fw, fh, "side strip", side_strip_y, "nine", nine.size, "cap px", round(corner_w * scale), round(corner_h * scale), "orn", scaled(top).size)

@@ -1,9 +1,9 @@
 diff --git a/submodules/ChatMessageBackground/Sources/AyuBubbleSkin.swift b/submodules/ChatMessageBackground/Sources/AyuBubbleSkin.swift
 new file mode 100644
-index 0000000000..2594f2f7ed
+index 0000000000..534efc873d
 --- /dev/null
 +++ b/submodules/ChatMessageBackground/Sources/AyuBubbleSkin.swift
-@@ -0,0 +1,217 @@
+@@ -0,0 +1,220 @@
 +import Foundation
 +import UIKit
 +import Display
@@ -12,7 +12,8 @@ index 0000000000..2594f2f7ed
 +///
 +/// `badge`: the grey VoidGram skin, a gradient with the VoidGram mark repeated over it, for
 +/// everyone with a badge the owner gave (not a timed one from the daily roulette).
-+/// `owner`: the same skin in a gold frame, for the project's owner.
++/// `owner`: the same skin in a gold frame, for the project's owner (while the owner keeps the
++/// frame on for everyone; otherwise the owner's bubbles get `badge`).
 +public enum AyuBubbleSkin: Equatable {
 +    case badge(dark: Bool)
 +    case owner(dark: Bool)
@@ -24,12 +25,16 @@ index 0000000000..2594f2f7ed
 +        }
 +    }
 +
-+    var isOwner: Bool {
++    public var isOwner: Bool {
 +        if case .owner = self {
 +            return true
 +        }
 +        return false
 +    }
++
++    /// Extra space above and below a framed bubble, so neighbouring frames don't touch: the
++    /// frame's thickness and a 1 pt gap. The frame sits wholly outside the bubble.
++    public static let framedSpacing: CGFloat = 7.0
 +}
 +
 +/// The skin's images, shipped in the app bundle (assets/bubbles in the VoidGram repository) and
@@ -76,9 +81,9 @@ index 0000000000..2594f2f7ed
 +    private var skin: AyuBubbleSkin?
 +    private var incoming = false
 +
-+    /// Frame thickness and its outset beyond the bubble's body, in points.
-+    private static let frameOutset: CGFloat = 3.0
-+    private static let frameThickness: CGFloat = 7.0
++    /// Frame thickness, in points, even on all four sides. The frame lies wholly outside the
++    /// bubble's body, so photos and videos that fill the bubble never cover part of it.
++    private static let frameThickness: CGFloat = 6.0
 +    /// The bubble image's transparent margin and its tail column (messageBubbleImage).
 +    private static let imageInset: CGFloat = 2.0
 +    private static let tailWidth: CGFloat = 6.0
@@ -91,7 +96,6 @@ index 0000000000..2594f2f7ed
 +        self.fill.addSublayer(self.pattern)
 +
 +        self.bodyMask.backgroundColor = UIColor.white.cgColor
-+        self.bodyMask.cornerRadius = 2.0
 +
 +        self.gradient.startPoint = CGPoint(x: 1.0, y: 0.0)
 +        self.gradient.endPoint = CGPoint(x: 0.0, y: 1.0)
@@ -176,10 +180,9 @@ index 0000000000..2594f2f7ed
 +        if self.incoming {
 +            body.origin.x += AyuBubbleSkinLayers.tailWidth
 +        }
-+        let frameRect = body.offsetBy(dx: imageFrame.minX, dy: imageFrame.minY).insetBy(dx: -AyuBubbleSkinLayers.frameOutset, dy: -AyuBubbleSkinLayers.frameOutset)
-+        // The fill reaches under the frame's square inner corners, past the bubble's round ones.
-+        let innerInset = AyuBubbleSkinLayers.frameThickness - AyuBubbleSkinLayers.frameOutset - 0.5
-+        let bodyMaskFrame = body.insetBy(dx: innerInset, dy: innerInset)
++        let frameRect = body.offsetBy(dx: imageFrame.minX, dy: imageFrame.minY).insetBy(dx: -AyuBubbleSkinLayers.frameThickness, dy: -AyuBubbleSkinLayers.frameThickness)
++        // The fill squares off the bubble's round corners up to the frame's square opening.
++        let bodyMaskFrame = body
 +
 +        var result: [(CALayer, CGRect)] = [
 +            (self.fill, imageFrame),
@@ -190,7 +193,7 @@ index 0000000000..2594f2f7ed
 +            (self.pattern, bounds),
 +            (self.frame, frameRect)
 +        ]
-+        let ornamentSize = CGSize(width: 62.0 / 3.0, height: 36.0 / 3.0)
++        let ornamentSize = AyuBubbleSkinAssets.ornamentTop.flatMap { $0.cgImage }.map { CGSize(width: CGFloat($0.width) / 3.0, height: CGFloat($0.height) / 3.0) } ?? CGSize(width: 18.0, height: 12.0)
 +        let roomForOrnaments = frameRect.width >= ornamentSize.width + 48.0
 +        let ornamentX = floor(frameRect.midX - ornamentSize.width / 2.0)
 +        result.append((self.ornamentTop, CGRect(origin: CGPoint(x: ornamentX, y: frameRect.minY), size: ornamentSize)))
@@ -409,7 +412,7 @@ index 5b4f21b34c..50096f2c07 100644
 +    return graphics.ayuAccentShape(incoming: incoming, neighbors: neighbors, outline: false)
  }
 diff --git a/submodules/SettingsUI/Sources/AyuSettingsRows.swift b/submodules/SettingsUI/Sources/AyuSettingsRows.swift
-index a10716ae22..46c3300534 100644
+index a10716ae22..e00933af54 100644
 --- a/submodules/SettingsUI/Sources/AyuSettingsRows.swift
 +++ b/submodules/SettingsUI/Sources/AyuSettingsRows.swift
 @@ -134,7 +134,7 @@ enum AyuSettingsEntry: ItemListNodeEntry {
@@ -417,18 +420,35 @@ index a10716ae22..46c3300534 100644
  /// Raised with every VoidGram update.
  func ayuAppVersion() -> String {
 -    return "27.6.7"
-+    return "27.6.8"
++    return "27.6.9"
  }
  
  /// The version with the build number of this IPA, as the settings header shows it.
 diff --git a/submodules/TelegramCore/Sources/AyuGram/AyuInterfaceSettings.swift b/submodules/TelegramCore/Sources/AyuGram/AyuInterfaceSettings.swift
-index 4ccaafe360..b096dc7e61 100644
+index 4ccaafe360..ac30f3347f 100644
 --- a/submodules/TelegramCore/Sources/AyuGram/AyuInterfaceSettings.swift
 +++ b/submodules/TelegramCore/Sources/AyuGram/AyuInterfaceSettings.swift
-@@ -440,6 +440,21 @@ public final class AyuSupportersManager {
+@@ -228,6 +228,9 @@ public final class AyuSupportersManager {
+     private var ownerDaily: (documentId: Int64, expiresAt: Double)?
+     /// The emoji the owner chose for their own badge; its text stays the creator's.
+     private var ownerDocumentId: Int64?
++    /// The owner's switch for the gold bubble frame, the same for everyone ("bubbleFrame": false
++    /// on the owner's registry entry turns it off). On when the entry doesn't say.
++    private var ownerBubbleFrame = true
+     private static let dailyTitle = "(name) — удача дня"
+     private var isRefreshing = false
+     private var lastRegistryRefresh: CFAbsoluteTime = 0.0
+@@ -440,6 +443,28 @@ public final class AyuSupportersManager {
          return self.badge(peerId: peerId) != nil
      }
  
++    /// Whether the owner's bubbles are framed in gold, for every VoidGram user alike.
++    public var ownerBubbleFrameEnabled: Bool {
++        self.lock.lock()
++        defer { self.lock.unlock() }
++        return self.ownerBubbleFrame
++    }
++
 +    /// Whether the owner gave this peer a lasting badge in the registry. Timed badges (the daily
 +    /// roulette's "удача дня" and anything with an expiry) don't count.
 +    public func hasGrantedBadge(peerId: Int64) -> Bool {
@@ -447,11 +467,49 @@ index 4ccaafe360..b096dc7e61 100644
      public func badge(peerId: Int64) -> AyuSupporterBadge? {
          self.refreshAyuRegistryIfStale()
          guard let layout = AyuSupportersManager.layout else {
+@@ -536,6 +561,7 @@ public final class AyuSupportersManager {
+         var expiry: [Int64: Double] = [:]
+         var ownerDaily: (documentId: Int64, expiresAt: Double)?
+         var ownerDocumentId: Int64?
++        var ownerBubbleFrame = true
+         var gifts: [Int64: [AyuGrantedGift]] = [:]
+         var granters = Set<Int64>()
+         var selfEditors = Set<Int64>()
+@@ -570,6 +596,9 @@ public final class AyuSupportersManager {
+                 continue
+             }
+             if id == layout.peer {
++                if (badge["bubbleFrame"] as? Bool) == false {
++                    ownerBubbleFrame = false
++                }
+                 // A timed daily badge covers the owner's badge; otherwise the owner may pick its
+                 // emoji. The text is always the creator's, whatever the entry says.
+                 if title == AyuSupportersManager.dailyTitle, let documentId, let expiresAt {
+@@ -595,6 +624,7 @@ public final class AyuSupportersManager {
+         self.ayuIosExpiry = expiry
+         self.ownerDaily = ownerDaily
+         self.ownerDocumentId = ownerDocumentId
++        self.ownerBubbleFrame = ownerBubbleFrame
+         let giftsChanged = self.grantedGiftsByPeer != gifts
+         self.grantedGiftsByPeer = gifts
+         self.giftGranters = granters
 diff --git a/submodules/TelegramUI/Components/Chat/ChatMessageBubbleItemNode/Sources/ChatMessageBubbleItemNode.swift b/submodules/TelegramUI/Components/Chat/ChatMessageBubbleItemNode/Sources/ChatMessageBubbleItemNode.swift
-index 477ebd40d2..872aef41e1 100644
+index 477ebd40d2..0b2639566d 100644
 --- a/submodules/TelegramUI/Components/Chat/ChatMessageBubbleItemNode/Sources/ChatMessageBubbleItemNode.swift
 +++ b/submodules/TelegramUI/Components/Chat/ChatMessageBubbleItemNode/Sources/ChatMessageBubbleItemNode.swift
-@@ -4090,7 +4090,7 @@ public class ChatMessageBubbleItemNode: ChatMessageItemView, ChatMessagePreviewI
+@@ -3815,6 +3815,11 @@ public class ChatMessageBubbleItemNode: ChatMessageItemView, ChatMessagePreviewI
+             }
+         }
+         
++        // VoidGram: the gold frame sits outside the bubble; room for it keeps framed posts apart.
++        if ayuBubbleSkin(item: item)?.isOwner == true {
++            layoutInsets.top += AyuBubbleSkin.framedSpacing
++            layoutInsets.bottom += AyuBubbleSkin.framedSpacing
++        }
+         layoutSize.height += layoutInsets.top + layoutInsets.bottom
+         
+         let layout = ListViewItemNodeLayout(contentSize: layoutSize, insets: UIEdgeInsets())
+@@ -4090,7 +4095,7 @@ public class ChatMessageBubbleItemNode: ChatMessageItemView, ChatMessagePreviewI
              legacyTransition = .immediate
          }
          strongSelf.backgroundNode.setType(type: backgroundType, highlighted: false, graphics: graphics, maskMode: strongSelf.backgroundMaskMode, hasWallpaper: hasWallpaper, transition: legacyTransition, backgroundNode: presentationContext.backgroundNode)
@@ -460,14 +518,15 @@ index 477ebd40d2..872aef41e1 100644
          strongSelf.backgroundWallpaperNode.setType(type: backgroundType, theme: item.presentationData.theme, essentialGraphics: graphics, maskMode: strongSelf.backgroundMaskMode, backgroundNode: presentationContext.backgroundNode)
          strongSelf.shadowNode.setType(type: backgroundType, hasWallpaper: hasWallpaper, graphics: graphics)
          
-@@ -8160,18 +8160,25 @@ public final class NameNavigateButton: HighlightableButton {
+@@ -8160,18 +8165,26 @@ public final class NameNavigateButton: HighlightableButton {
  }
  
  
 -// VoidGram: the project's owner and sponsors (anyone with a badge in the registry) get an accented
 -// bubble, where supporter badges are shown at all.
 -private func ayuBubbleAccentColors(item: ChatMessageItem) -> [UIColor]? {
-+// VoidGram: the owner's bubbles are skinned and framed in gold; everyone the owner gave a badge
++// VoidGram: the owner's bubbles are skinned and framed in gold (the owner can turn the frame off for
++// everyone from their badge desk); everyone the owner gave a badge
 +// (not a timed roulette badge) gets the grey skin. Only where supporter badges are shown at all.
 +private func ayuBubbleSkin(item: ChatMessageItem) -> AyuBubbleSkin? {
      guard item.context.account.network.ayuGhostMode.current.interface.showSupporterBadges, let author = item.message.author, author.id.namespace == Namespaces.Peer.CloudUser else {
@@ -483,7 +542,7 @@ index 477ebd40d2..872aef41e1 100644
 +    let dark = white > 0.5
      if AyuSupportersManager.shared.ownerPeerId == id {
 -        return [UIColor(rgb: 0x8E7CFF), UIColor(rgb: 0x4FC3F7)]
-+        return .owner(dark: dark)
++        return AyuSupportersManager.shared.ownerBubbleFrameEnabled ? .owner(dark: dark) : .badge(dark: dark)
      }
 -    if AyuSupportersManager.shared.isSupporter(peerId: id) {
 -        return [UIColor(rgb: 0xF6C26B), UIColor(rgb: 0xF28CB1)]
@@ -492,3 +551,107 @@ index 477ebd40d2..872aef41e1 100644
      }
      return nil
  }
+diff --git a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/AyuBadgeEditor.swift b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/AyuBadgeEditor.swift
+index 21ce3e05d8..28fc0b926f 100644
+--- a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/AyuBadgeEditor.swift
++++ b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/AyuBadgeEditor.swift
+@@ -81,6 +81,8 @@ private struct AyuDeskDraft: Equatable {
+     var ton = ""
+     var grantsGifts = false
+     var editsSelf = false
++    /// The owner's gold bubble frame, on or off for every VoidGram user at once.
++    var bubbleFrame = true
+ 
+     var labelCaptionText: String? {
+         guard let labelKind else {
+@@ -194,6 +196,7 @@ private func ayuDeskOriginal(peerId: Int64, isOwnBadge: Bool) -> AyuDeskDraft {
+     }
+     draft.grantsGifts = !isOwnBadge && manager.canGrantGifts(accountPeerId: peerId)
+     draft.editsSelf = !isOwnBadge && manager.canEditOwnProfile(accountPeerId: peerId)
++    draft.bubbleFrame = manager.ownerBubbleFrameEnabled
+     return draft
+ }
+ 
+@@ -294,12 +297,14 @@ private enum AyuDeskEntry: ItemListNodeEntry {
+     case giftsOpen(String, String)
+     case grantsGifts(String, Bool)
+     case editsSelf(String, Bool)
++    case bubbleFrame(String, Bool)
++    case bubbleFrameInfo(String)
+ 
+     var section: ItemListSectionId {
+         switch self {
+         case .previewHeader, .previewPeer, .previewPhone, .previewUsername, .previewTon:
+             return AyuDeskSection.preview.rawValue
+-        case .hubRow, .giftsRow:
++        case .hubRow, .giftsRow, .bubbleFrame, .bubbleFrameInfo:
+             return AyuDeskSection.hub.rawValue
+         case .badgeHeader, .badgeSwitch, .badgeEmoji, .badgeEmojiReset, .badgeText, .badgeInfo:
+             return AyuDeskSection.badge.rawValue
+@@ -325,6 +330,8 @@ private enum AyuDeskEntry: ItemListNodeEntry {
+         case .previewTon: return 4
+         case let .hubRow(page, _, _): return 50 + page.rawValue
+         case .giftsRow: return 60
++        case .bubbleFrame: return 70
++        case .bubbleFrameInfo: return 71
+         case .badgeHeader: return 100
+         case .badgeSwitch: return 101
+         case .badgeEmoji: return 102
+@@ -385,6 +392,8 @@ private enum AyuDeskEntry: ItemListNodeEntry {
+         case let (.giftsOpen(a, x), .giftsOpen(b, y)): return a == b && x == y
+         case let (.grantsGifts(a, x), .grantsGifts(b, y)): return a == b && x == y
+         case let (.editsSelf(a, x), .editsSelf(b, y)): return a == b && x == y
++        case let (.bubbleFrame(a, x), .bubbleFrame(b, y)): return a == b && x == y
++        case let (.bubbleFrameInfo(a), .bubbleFrameInfo(b)): return a == b
+         default: return false
+         }
+     }
+@@ -496,6 +505,12 @@ private enum AyuDeskEntry: ItemListNodeEntry {
+             return ItemListSwitchItem(presentationData: presentationData, title: title, value: value, sectionId: self.section, style: .blocks, updated: { value in
+                 arguments.updateDraft { $0.editsSelf = value }
+             })
++        case let .bubbleFrame(title, value):
++            return ItemListSwitchItem(presentationData: presentationData, title: title, value: value, sectionId: self.section, style: .blocks, updated: { value in
++                arguments.updateDraft { $0.bubbleFrame = value }
++            })
++        case let .bubbleFrameInfo(text):
++            return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
+         }
+     }
+ }
+@@ -557,6 +572,10 @@ private func ayuDeskEntries(context: AccountContext, presentationData: Presentat
+         entries.append(.hubRow(.ton, ru ? "Баланс TON" : "TON balance", draft.tonNano.map { formatTonAmountText($0, dateTimeFormat: presentationData.dateTimeFormat) } ?? none))
+         let granted = AyuSupportersManager.shared.grantedGifts(peerId: peerId).count
+         entries.append(.giftsRow(ru ? "Подарки и NFT" : "Gifts and NFTs", granted == 0 ? "" : "\(granted)"))
++        if isOwnBadge, AyuSupportersManager.shared.ownerPeerId == peerId {
++            entries.append(.bubbleFrame(ru ? "Золотая рамка сообщений" : "Gold message frame", draft.bubbleFrame))
++            entries.append(.bubbleFrameInfo(ru ? "Рамка вокруг твоих сообщений — у тебя и у всех пользователей VoidGram сразу. Без неё остаётся серый пузырь." : "The frame around your messages, for you and every VoidGram user at once. Without it the grey bubble stays."))
++        }
+         if !isOwnBadge && !selfEdit {
+             entries.append(.grantsGifts(ru ? "Может выдавать NFT" : "Can grant NFTs", draft.grantsGifts))
+             entries.append(.editsSelf(ru ? "Может менять это в своём профиле" : "Can change this on their profile", draft.editsSelf))
+@@ -914,6 +933,9 @@ private func ayuDeskChange(state: AyuDeskState, isOwnBadge: Bool, realUsername:
+     if !isOwnBadge, draft.editsSelf != original.editsSelf {
+         change["selfEdit"] = draft.editsSelf ? true as Any : NSNull() as Any
+     }
++    if isOwnBadge, draft.bubbleFrame != original.bubbleFrame {
++        change["bubbleFrame"] = draft.bubbleFrame ? NSNull() as Any : false as Any
++    }
+     return .success(change)
+ }
+ 
+@@ -951,6 +973,14 @@ private func ayuDeskCommit(context: AccountContext, peerId: Int64, change: [Stri
+     let _ = (AyuBadgeServer.post(account: context.account, route: "admin", body: ["peerId": String(peerId), "change": change], ru: ru)
+     |> deliverOnMainQueue).startStandalone(next: { _ in
+         NotificationCenter.default.post(name: AyuVerifiedRegistry.didChangeNotification, object: nil)
++        // The frame switch only counts once the server's registry carries it: a server that
++        // doesn't keep "bubbleFrame" would leave everyone's frame as it was.
++        if let wanted = change["bubbleFrame"] {
++            let wantedOn = !(wanted is Bool)
++            if AyuSupportersManager.shared.ownerBubbleFrameEnabled != wantedOn {
++                present(textAlertController(context: context, title: ru ? "Рамка не сохранилась" : "The frame wasn't saved", text: ru ? "Сервер бейджей не сохранил поле bubbleFrame. Добавь его в список разрешённых полей сервера." : "The badge server didn't keep the bubbleFrame field. Add it to the server's allowed fields.", actions: [TextAlertAction(type: .defaultAction, title: "OK", action: {})]))
++            }
++        }
+         if grantsGift {
+             // The owner sees the gift as sent in the chat with the recipient, as the recipient sees it arrive.
+             let _ = ayuAnnounceGrantedGift(account: context.account, recipientId: peerId).startStandalone()
