@@ -40,10 +40,10 @@ index 3c7a897c..d58fd8fd 100644
              
 diff --git a/submodules/Display/Source/AyuAvatarFrames.swift b/submodules/Display/Source/AyuAvatarFrames.swift
 new file mode 100644
-index 00000000..a3978746
+index 00000000..bb2febb5
 --- /dev/null
 +++ b/submodules/Display/Source/AyuAvatarFrames.swift
-@@ -0,0 +1,159 @@
+@@ -0,0 +1,205 @@
 +import Foundation
 +import UIKit
 +import ImageIO
@@ -59,16 +59,22 @@ index 00000000..a3978746
 +
 +    /// The avatar's clear circle fills this part of a frame's width.
 +    public static let avatarFraction: CGFloat = 178.0 / 240.0
++    /// A frame's image is this wide for `avatarFraction`; the avatar's circle is always 178 px, so
++    /// a wider image (wings, say) reaches further out around the same avatar.
++    fileprivate static let baseWidth: CGFloat = 240.0
 +
 +    private static let baseUrl = "https://badge.vinx.best/assets/frames/"
 +
 +    fileprivate final class Decoded {
 +        let images: [CGImage]
 +        let duration: Double
++        /// How many regular frame widths the image covers.
++        let extent: CGFloat
 +
 +        init(images: [CGImage], duration: Double) {
 +            self.images = images
 +            self.duration = duration
++            self.extent = max(1.0, min(3.0, CGFloat(images[0].width) / AyuAvatarFrames.baseWidth))
 +        }
 +    }
 +
@@ -143,12 +149,20 @@ index 00000000..a3978746
 +        let directory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("voidgram-avatar-frames", isDirectory: true)
 +        let file = directory.appendingPathComponent(id + ".png")
 +        queue.async {
-+            if let data = try? Data(contentsOf: file) {
-+                finish(data)
++            // A day-old copy is fetched again, so a frame redrawn on the server reaches everyone;
++            // the old copy stays in use while offline.
++            let cached = try? Data(contentsOf: file)
++            let modified = (try? FileManager.default.attributesOfItem(atPath: file.path))?[.modificationDate] as? Date
++            if let cached, let modified, Date().timeIntervalSince(modified) < 24.0 * 60.0 * 60.0 {
++                finish(cached)
 +                return
 +            }
 +            URLSession.shared.dataTask(with: url, completionHandler: { data, response, _ in
 +                guard let data, (response as? HTTPURLResponse)?.statusCode == 200 else {
++                    if let cached {
++                        finish(cached)
++                        return
++                    }
 +                    DispatchQueue.main.async {
 +                        completion(nil)
 +                    }
@@ -162,14 +176,44 @@ index 00000000..a3978746
 +    }
 +}
 +
-+/// Plays one avatar frame. The parent sets its frame.
++/// Plays one avatar frame. The parent sets its frame for a regular frame; a wider one spills past
++/// it on every side, unless `fitsInside` shrinks it into the bounds (the picker's cells).
 +public final class AyuAvatarFrameView: UIView {
 +    public private(set) var frameId: String?
++    /// How many regular frame widths the current frame covers; 1 until it has loaded.
++    public private(set) var extent: CGFloat = 1.0
++    public var extentUpdated: (() -> Void)?
++    public var fitsInside = false {
++        didSet {
++            self.setNeedsLayout()
++        }
++    }
++
++    private let contentLayer = CALayer()
 +
 +    public override init(frame: CGRect) {
 +        super.init(frame: frame)
 +        self.isUserInteractionEnabled = false
-+        self.layer.contentsGravity = .resizeAspect
++        self.contentLayer.contentsGravity = .resizeAspect
++        self.layer.addSublayer(self.contentLayer)
++    }
++
++    public override func layoutSubviews() {
++        super.layoutSubviews()
++        let scale = self.fitsInside ? 1.0 : self.extent
++        CATransaction.begin()
++        CATransaction.setDisableActions(true)
++        self.contentLayer.bounds = CGRect(x: 0.0, y: 0.0, width: self.bounds.width * scale, height: self.bounds.height * scale)
++        self.contentLayer.position = CGPoint(x: self.bounds.midX, y: self.bounds.midY)
++        CATransaction.commit()
++    }
++
++    private func setExtent(_ extent: CGFloat) {
++        if self.extent != extent {
++            self.extent = extent
++            self.setNeedsLayout()
++            self.extentUpdated?()
++        }
 +    }
 +
 +    required init?(coder: NSCoder) {
@@ -181,8 +225,9 @@ index 00000000..a3978746
 +            return
 +        }
 +        self.frameId = id
-+        self.layer.removeAnimation(forKey: "frames")
-+        self.layer.contents = nil
++        self.contentLayer.removeAnimation(forKey: "frames")
++        self.contentLayer.contents = nil
++        self.setExtent(1.0)
 +        guard let id else {
 +            return
 +        }
@@ -190,7 +235,8 @@ index 00000000..a3978746
 +            guard let self, self.frameId == id, let decoded else {
 +                return
 +            }
-+            self.layer.contents = decoded.images.first
++            self.setExtent(decoded.extent)
++            self.contentLayer.contents = decoded.images.first
 +            if decoded.images.count > 1 {
 +                let animation = CAKeyframeAnimation(keyPath: "contents")
 +                animation.values = decoded.images
@@ -198,17 +244,17 @@ index 00000000..a3978746
 +                animation.duration = decoded.duration
 +                animation.repeatCount = .infinity
 +                animation.isRemovedOnCompletion = false
-+                self.layer.add(animation, forKey: "frames")
++                self.contentLayer.add(animation, forKey: "frames")
 +            }
 +        })
 +    }
 +}
 diff --git a/submodules/SettingsUI/Sources/AyuAvatarFramePicker.swift b/submodules/SettingsUI/Sources/AyuAvatarFramePicker.swift
 new file mode 100644
-index 00000000..d75232ed
+index 00000000..ff0df29b
 --- /dev/null
 +++ b/submodules/SettingsUI/Sources/AyuAvatarFramePicker.swift
-@@ -0,0 +1,161 @@
+@@ -0,0 +1,166 @@
 +import Foundation
 +import UIKit
 +import Display
@@ -229,6 +275,10 @@ index 00000000..d75232ed
 +            self.circle.backgroundColor = UIColor(white: 0.5, alpha: 0.35)
 +            self.contentView.addSubview(self.circle)
 +            self.contentView.addSubview(self.frameView)
++            self.frameView.fitsInside = true
++            self.frameView.extentUpdated = { [weak self] in
++                self?.setNeedsLayout()
++            }
 +            self.title.font = Font.regular(13.0)
 +            self.title.textAlignment = .center
 +            self.contentView.addSubview(self.title)
@@ -242,7 +292,8 @@ index 00000000..d75232ed
 +            super.layoutSubviews()
 +            let side = self.contentView.bounds.width
 +            self.frameView.frame = CGRect(x: 0.0, y: 0.0, width: side, height: side)
-+            let avatar = side * AyuAvatarFrames.avatarFraction
++            // A wide frame fills the cell whole, around a smaller avatar.
++            let avatar = side * AyuAvatarFrames.avatarFraction / self.frameView.extent
 +            self.circle.frame = CGRect(x: (side - avatar) / 2.0, y: (side - avatar) / 2.0, width: avatar, height: avatar)
 +            self.circle.layer.cornerRadius = avatar / 2.0
 +            self.title.frame = CGRect(x: 0.0, y: side, width: side, height: 20.0)
@@ -394,7 +445,7 @@ index 8b91eb27..e63ac0a6 100644
          var nextId: Int32 = 40
          for (peerId, badge) in AyuCustomization.peerBadges.sorted(by: { $0.key < $1.key }) where nextId < 95 {
 diff --git a/submodules/SettingsUI/Sources/AyuSettingsRows.swift b/submodules/SettingsUI/Sources/AyuSettingsRows.swift
-index aa6466bf..8efe7b80 100644
+index aa6466bf..3be9fcac 100644
 --- a/submodules/SettingsUI/Sources/AyuSettingsRows.swift
 +++ b/submodules/SettingsUI/Sources/AyuSettingsRows.swift
 @@ -134,7 +134,7 @@ enum AyuSettingsEntry: ItemListNodeEntry {
@@ -402,7 +453,7 @@ index aa6466bf..8efe7b80 100644
  /// Raised with every VoidGram update.
  func ayuAppVersion() -> String {
 -    return "27.7.1"
-+    return "27.8.0"
++    return "27.8.1"
  }
  
  /// The version with the build number of this IPA, as the settings header shows it.
@@ -638,7 +689,7 @@ index 28fc0b92..1af18a60 100644
      if ton != original.ton.trimmingCharacters(in: .whitespaces) {
          if ton.isEmpty {
 diff --git a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoHeaderNode.swift b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoHeaderNode.swift
-index 89bdf502..0e01ba0d 100644
+index 89bdf502..e9341ad7 100644
 --- a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoHeaderNode.swift
 +++ b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoHeaderNode.swift
 @@ -254,6 +254,7 @@ final class PeerInfoHeaderNode: ASDisplayNode {
