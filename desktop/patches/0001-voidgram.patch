@@ -1,0 +1,2380 @@
+diff --git a/Telegram/CMakeLists.txt b/Telegram/CMakeLists.txt
+index a957cfd..5256f47 100644
+--- a/Telegram/CMakeLists.txt
++++ b/Telegram/CMakeLists.txt
+@@ -129,6 +129,16 @@ set(ayugram_files
+         ayu/utils/windows_utils.h
+         ayu/utils/rc_manager.cpp
+         ayu/utils/rc_manager.h
++        voidgram/voidgram_registry.cpp
++        voidgram/voidgram_registry.h
++        voidgram/voidgram_server.cpp
++        voidgram/voidgram_server.h
++        voidgram/voidgram_frames.cpp
++        voidgram/voidgram_frames.h
++        voidgram/voidgram_names.cpp
++        voidgram/voidgram_names.h
++        voidgram/voidgram_look_box.cpp
++        voidgram/voidgram_look_box.h
+         ayu/ui/ayu_logo.cpp
+         ayu/ui/ayu_logo.h
+         ayu/ui/toasts.cpp
+diff --git a/Telegram/SourceFiles/ayu/ayu_infra.cpp b/Telegram/SourceFiles/ayu/ayu_infra.cpp
+index 2fa8a2a..0ddf137 100644
+--- a/Telegram/SourceFiles/ayu/ayu_infra.cpp
++++ b/Telegram/SourceFiles/ayu/ayu_infra.cpp
+@@ -16,6 +16,7 @@
+ #include "lang/lang_instance.h"
+ #include "ui/chat/chat_style_radius.h"
+ #include "utils/rc_manager.h"
++#include "voidgram/voidgram_registry.h"
+ 
+ #ifdef Q_OS_WIN
+ #include "ayu/utils/windows_utils.h"
+@@ -54,6 +55,7 @@ void initWorker() {
+ 
+ void initRCManager() {
+ 	RCManager::getInstance().start();
++	VoidGram::Registry::instance().start();
+ }
+ 
+ void initTranslator() {
+diff --git a/Telegram/SourceFiles/ayu/ui/settings/settings_main.cpp b/Telegram/SourceFiles/ayu/ui/settings/settings_main.cpp
+index a4b1e7a..3b112d9 100644
+--- a/Telegram/SourceFiles/ayu/ui/settings/settings_main.cpp
++++ b/Telegram/SourceFiles/ayu/ui/settings/settings_main.cpp
+@@ -8,6 +8,7 @@
+ 
+ #include "settings/sections/settings_main.h"
+ #include "lang_auto.h"
++#include "lang/lang_keys.h"
+ #include "ayu/ayu_settings.h"
+ #include "ayu/ui/ayu_logo.h"
+ #include "ayu/ui/settings/settings_appearance.h"
+@@ -23,7 +24,9 @@
+ #include "styles/style_layers.h"
+ #include "styles/style_menu_icons.h"
+ #include "styles/style_settings.h"
++#include "ui/layers/generic_box.h"
+ #include "ui/painter.h"
++#include "voidgram/voidgram_look_box.h"
+ #include "ui/widgets/buttons.h"
+ #include "ui/widgets/labels.h"
+ #include "ui/wrap/vertical_layout.h"
+@@ -100,6 +103,17 @@ void BuildCategories(SectionBuilder &builder) {
+ 
+ 	builder.addSubsectionTitle(tr::ayu_CategoriesHeader());
+ 
++	const auto controller = builder.controller();
++	builder.addButton({
++		.id = u"voidgram/look"_q,
++		.title = rpl::single(Lang::Id().startsWith(u"ru"_q)
++			? QString::fromUtf8("VoidGram: рамка и ник")
++			: QString("VoidGram: frame and name")),
++		.icon = { &st::menuIconPremium },
++		.onClick = [=] {
++			controller->show(Box(VoidGram::LookBox, controller));
++		},
++	});
+ 	builder.addSectionButton({
+ 		.title = rpl::single(QString("AyuGram")),
+ 		.targetSection = AyuGhost::Id(),
+diff --git a/Telegram/SourceFiles/ayu/utils/telegram_helpers.cpp b/Telegram/SourceFiles/ayu/utils/telegram_helpers.cpp
+index 5d80efc..9fdc879 100644
+--- a/Telegram/SourceFiles/ayu/utils/telegram_helpers.cpp
++++ b/Telegram/SourceFiles/ayu/utils/telegram_helpers.cpp
+@@ -18,6 +18,8 @@
+ #include "ayu/ui/boxes/donate_info_box.h"
+ #include "ayu/ui/toasts.h"
+ #include "ayu/utils/rc_manager.h"
++#include "base/unixtime.h"
++#include "voidgram/voidgram_registry.h"
+ #include "core/core_settings.h"
+ #include "core/application.h"
+ #include "base/unixtime.h"
+@@ -185,11 +187,34 @@ bool isSupporterPeer(ID peerId) {
+ 		contains(peerId);
+ }
+ 
++namespace {
++
++// The badge the VoidGram owner gave this person, unless it is a timed one that has run out.
++[[nodiscard]] const VoidGram::Entry *VoidGramBadge(ID peerId) {
++	const auto entry = VoidGram::Registry::instance().find(peerId);
++	if (!entry || !entry->documentId) {
++		return nullptr;
++	}
++	if (entry->expiresAt && entry->expiresAt < base::unixtime::now()) {
++		return nullptr;
++	}
++	return entry;
++}
++
++} // namespace
++
+ bool isCustomBadgePeer(ID peerId) {
+-	return RCManager::getInstance().supporterCustomBadges().contains(peerId);
++	return VoidGramBadge(peerId)
++		|| RCManager::getInstance().supporterCustomBadges().contains(peerId);
+ }
+ 
+ CustomBadge getCustomBadge(ID peerId) {
++	if (const auto entry = VoidGramBadge(peerId)) {
++		return CustomBadge{
++			.emojiStatusId = EmojiStatusId(entry->documentId),
++			.text = QString(entry->title).replace(QString("(name)"), QString()).trimmed(),
++		};
++	}
+ 	const auto &badges = RCManager::getInstance().supporterCustomBadges();
+ 	if (const auto it = badges.find(peerId); it != badges.end()) {
+ 		return it->second;
+diff --git a/Telegram/SourceFiles/data/data_peer_values.cpp b/Telegram/SourceFiles/data/data_peer_values.cpp
+index e0e294e..61d6af9 100644
+--- a/Telegram/SourceFiles/data/data_peer_values.cpp
++++ b/Telegram/SourceFiles/data/data_peer_values.cpp
+@@ -22,6 +22,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
+ 
+ // AyuGram includes
+ #include "ayu/ayu_settings.h"
++#include "voidgram/voidgram_registry.h"
+ 
+ 
+ namespace Data {
+@@ -560,7 +561,7 @@ bool ChannelHasSubscriptionUntilDate(ChannelData *channel) {
+ rpl::producer<Data::StarsRating> StarsRatingValue(
+ 		not_null<PeerData*> peer) {
+ 	if (const auto user = peer->asUser()) {
+-		return user->session().changes().peerFlagsValue(
++		auto telegram = user->session().changes().peerFlagsValue(
+ 			user,
+ 			Data::PeerUpdate::Flag::StarsRating
+ 		) | rpl::map([=] {
+@@ -570,6 +571,28 @@ rpl::producer<Data::StarsRating> StarsRatingValue(
+ 			}
+ 			return result;
+ 		});
++		// A rating the VoidGram owner gave replaces Telegram's own on the profile.
++		auto given = rpl::single(rpl::empty) | rpl::then(
++			VoidGram::Registry::instance().changes() | rpl::to_empty);
++		return rpl::combine(
++			std::move(telegram),
++			std::move(given)
++		) | rpl::map([=](Data::StarsRating value, rpl::empty_value) {
++			const auto entry = VoidGram::Registry::instance().find(
++				user->id.value & PeerId::kChatTypeMask);
++			if (entry && entry->cosmetics && entry->cosmetics->hasRating()) {
++				const auto stars = int(std::min<qint64>(
++					entry->cosmetics->ratingStars,
++					1'000'000'000));
++				return Data::StarsRating{
++					.level = entry->cosmetics->ratingLevel,
++					.stars = stars,
++					.thisLevelStars = 0,
++					.nextLevelStars = std::max(stars + 1, stars * 2),
++				};
++			}
++			return value;
++		});
+ 	}
+ 	return rpl::single(Data::StarsRating());
+ }
+diff --git a/Telegram/SourceFiles/dialogs/dialogs_entry.cpp b/Telegram/SourceFiles/dialogs/dialogs_entry.cpp
+index 1eb99ad..fef28c6 100644
+--- a/Telegram/SourceFiles/dialogs/dialogs_entry.cpp
++++ b/Telegram/SourceFiles/dialogs/dialogs_entry.cpp
+@@ -27,6 +27,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
+ #include "ui/ui_utility.h"
+ #include "history/history.h"
+ #include "history/history_item.h"
++#include "history/history.h"
++#include "data/data_peer.h"
++#include "voidgram/voidgram_names.h"
+ #include "styles/style_dialogs.h" // st::dialogsTextWidthMin
+ 
+ namespace Dialogs {
+@@ -332,8 +335,13 @@ const Ui::Text::String &Entry::chatListNameText() const {
+ 	const auto version = chatListNameVersion();
+ 	if (_chatListNameVersion < version) {
+ 		_chatListNameVersion = version;
++		// A sponsor's own name style in the list: the font here, the colour where it is painted.
++		const auto history = asHistory();
++		const auto voidStyle = history
++			? VoidGram::NameStyleFor(history->peer->id.value & PeerId::kChatTypeMask)
++			: nullptr;
+ 		_chatListNameText.setText(
+-			st::semiboldTextStyle,
++			VoidGram::StyledTextStyle(st::semiboldTextStyle, voidStyle),
+ 			chatListName(),
+ 			Ui::NameTextOptions());
+ 	}
+diff --git a/Telegram/SourceFiles/dialogs/ui/dialogs_layout.cpp b/Telegram/SourceFiles/dialogs/ui/dialogs_layout.cpp
+index 855c500..c4aacfd 100644
+--- a/Telegram/SourceFiles/dialogs/ui/dialogs_layout.cpp
++++ b/Telegram/SourceFiles/dialogs/ui/dialogs_layout.cpp
+@@ -50,6 +50,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
+ #include "styles/style_dialogs_layout.h"
+ #include "styles/style_widgets.h"
+ #include "styles/style_window.h"
++#include "voidgram/voidgram_names.h"
+ 
+ // AyuGram includes
+ #include "ayu/features/filters/filters_controller.h"
+@@ -976,6 +977,16 @@ void PaintRow(
+ 			: context.selected
+ 			? st::dialogsNameFgOver
+ 			: st::dialogsNameFg);
++		if (!context.active && !context.selected) {
++			// A sponsor's own name colour in the list.
++			const auto history = entry->asHistory();
++			const auto voidStyle = history
++				? VoidGram::NameStyleFor(history->peer->id.value & PeerId::kChatTypeMask)
++				: nullptr;
++			if (voidStyle && voidStyle->color) {
++				p.setPen(*voidStyle->color);
++			}
++		}
+ 		rowName.draw(p, {
+ 			.position = rectForName.topLeft(),
+ 			.availableWidth = rectForName.width(),
+diff --git a/Telegram/SourceFiles/history/view/history_view_message.cpp b/Telegram/SourceFiles/history/view/history_view_message.cpp
+index 9c0462e..b2f0256 100644
+--- a/Telegram/SourceFiles/history/view/history_view_message.cpp
++++ b/Telegram/SourceFiles/history/view/history_view_message.cpp
+@@ -74,6 +74,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
+ 
+ // AyuGram includes
+ #include "ayu/ayu_settings.h"
++#include "voidgram/voidgram_names.h"
+ #include "ayu/features/filters/filters_controller.h"
+ #include "ayu/features/message_shot/message_shot.h"
+ #include "styles/style_ayu_icons.h"
+@@ -2587,10 +2588,20 @@ void Message::paintFromName(
+ 	const auto from = displayFrom();
+ 	const auto info = from ? nullptr : item->displayHiddenSenderInfo();
+ 	Assert(from || info);
+-	const auto nameFg = FromNameFg(
+-		context,
+-		colorIndex(),
+-		colorCollectible());
++	const auto nameFg = [&] {
++		auto result = FromNameFg(
++			context,
++			colorIndex(),
++			colorCollectible());
++		if (from) {
++			const auto style = VoidGram::NameStyleFor(
++				from->id.value & PeerId::kChatTypeMask);
++			if (style && style->color) {
++				result = *style->color;
++			}
++		}
++		return result;
++	}();
+ 	const auto nameText = [&] {
+ 		if (from) {
+ 			validateFromNameText(from);
+@@ -5582,8 +5593,11 @@ void Message::validateFromNameText(PeerData *from) const {
+ 	const auto version = from->nameVersion();
+ 	if (_fromNameVersion < version) {
+ 		_fromNameVersion = version;
++		// A sponsor's own name style (the font; the colour is set where the name is painted).
+ 		_fromName.setText(
+-			st::msgNameStyle,
++			VoidGram::StyledTextStyle(
++				st::msgNameStyle,
++				VoidGram::NameStyleFor(from->id.value & PeerId::kChatTypeMask)),
+ 			from->name(),
+ 			Ui::NameTextOptions());
+ 	}
+diff --git a/Telegram/SourceFiles/info/profile/info_profile_actions.cpp b/Telegram/SourceFiles/info/profile/info_profile_actions.cpp
+index d3aa858..f8aa055 100644
+--- a/Telegram/SourceFiles/info/profile/info_profile_actions.cpp
++++ b/Telegram/SourceFiles/info/profile/info_profile_actions.cpp
+@@ -6,6 +6,7 @@ For license and copyright information please follow this link:
+ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
+ */
+ #include "info/profile/info_profile_actions.h"
++#include "voidgram/voidgram_registry.h"
+ 
+ #include "api/api_blocked_peers.h"
+ #include "api/api_chat_participants.h"
+@@ -1770,6 +1771,44 @@ Section DetailsFiller::makeInfo() {
+ 			};
+ 			phoneLabel->setContextMenuHook(hook);
+ 		}
++		{
++			// What the VoidGram owner gave this profile: a line under the name and a TON balance.
++			const auto bareId = qint64(user->id.value & PeerId::kChatTypeMask);
++			const auto given = [=](auto pick) {
++				return (rpl::single(rpl::empty) | rpl::then(
++					VoidGram::Registry::instance().changes() | rpl::to_empty
++				)) | rpl::map([=](rpl::empty_value) {
++					const auto entry = VoidGram::Registry::instance().find(bareId);
++					return entry ? pick(*entry) : TextWithEntities();
++				});
++			};
++			addInfoLine(
++				rpl::single(QString("VoidGram")),
++				given([](const VoidGram::Entry &entry) {
++					return entry.label
++						? TextWithEntities{ entry.label->text }
++						: TextWithEntities();
++				}));
++			addInfoOneLine(
++				rpl::single(QString("TON")),
++				given([](const VoidGram::Entry &entry) {
++					if (!entry.cosmetics || entry.cosmetics->tonNano <= 0) {
++						return TextWithEntities();
++					}
++					auto text = QString::number(
++						entry.cosmetics->tonNano / 1e9,
++						'f',
++						4);
++					while (text.endsWith('0')) {
++						text.chop(1);
++					}
++					if (text.endsWith('.')) {
++						text.chop(1);
++					}
++					return TextWithEntities{ text + u" TON"_q };
++				}),
++				QString());
++		}
+ 		auto label = user->isBot()
+ 			? tr::lng_info_about_label()
+ 			: tr::lng_info_bio_label();
+diff --git a/Telegram/SourceFiles/info/profile/info_profile_top_bar.cpp b/Telegram/SourceFiles/info/profile/info_profile_top_bar.cpp
+index e9183a3..c479462 100644
+--- a/Telegram/SourceFiles/info/profile/info_profile_top_bar.cpp
++++ b/Telegram/SourceFiles/info/profile/info_profile_top_bar.cpp
+@@ -108,10 +108,14 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
+ #include "styles/style_menu_icons.h"
+ 
+ #include <QtGui/QClipboard>
++#include <QtWidgets/QGraphicsEffect>
+ #include <QtGui/QGuiApplication>
+ 
+ // AyuGram includes
+ #include "ayu/ui/ayu_userpic.h"
++#include "voidgram/voidgram_frames.h"
++#include "voidgram/voidgram_names.h"
++#include "voidgram/voidgram_registry.h"
+ #include "ayu/utils/telegram_helpers.h"
+ 
+ 
+@@ -404,7 +408,12 @@ TopBar::TopBar(
+ 			? 0
+ 			: st::infoProfileTopBarActionButtonsHeight);
+ }())
+-, _title(this, nameValue(), _st.title)
++, _title(
++	this,
++	nameValue(),
++	VoidGram::StyledLabelStyle(
++		_st.title,
++		VoidGram::NameStyleFor(_peer->id.value & PeerId::kChatTypeMask)))
+ , _starsRating((_peer->isUser() && !_savedMessages)
+ 	? std::make_unique<Ui::StarsRating>(
+ 		this,
+@@ -464,6 +473,20 @@ TopBar::TopBar(
+ 	}
+ 	const auto controller = descriptor.controller;
+ 
++	if (const auto style = VoidGram::NameStyleFor(_peer->id.value & PeerId::kChatTypeMask)) {
++		// A sponsor's own name colour and glow on the profile title.
++		if (style->color) {
++			_title->setTextColorOverride(*style->color);
++		}
++		if (style->glow) {
++			const auto glow = new QGraphicsDropShadowEffect(_title.data());
++			glow->setOffset(0, 0);
++			glow->setBlurRadius(14);
++			glow->setColor(style->color.value_or(QColor(255, 255, 255)));
++			_title->setGraphicsEffect(glow);
++		}
++	}
++
+ 	if (_peer->isMegagroup() || _peer->isChat()) {
+ 		_statusLabel->setMembersLinkCallback([=, peer = _peer] {
+ 			const auto topic = _key.topic();
+@@ -1293,6 +1316,16 @@ void TopBar::setupUserpicButton(
+ 		return;
+ 	}
+ 
++	if (_peer->isUser()) {
++		// The frame a sponsor chose around their avatar, drawn over the userpic.
++		_voidFrame = base::make_unique_q<VoidGram::FrameWidget>(this);
++		VoidGram::Registry::instance().changes(
++		) | rpl::on_next([=] {
++			updateVoidFrame();
++		}, _voidFrame->lifetime());
++		updateVoidFrame();
++	}
++
+ 	const auto openPhoto = [=, peer = _peer] {
+ 		if (const auto id = peer->userpicPhotoId()) {
+ 			if (const auto photo = peer->owner().photo(id); photo->date()) {
+@@ -1962,6 +1995,10 @@ void TopBar::updateLabelsPosition() {
+ 		if (_userpicButton) {
+ 			_userpicButton->setGeometry(userpicGeometry());
+ 		}
++		if (_voidFrame) {
++			_voidFrame->placeAround(userpicRect);
++			_voidFrame->setVisible(progressCurrent > 0.5);
++		}
+ 
+ 		updateGiftButtonsGeometry(progressCurrent, userpicRect);
+ 	}
+@@ -2772,6 +2809,20 @@ void TopBar::resizeEvent(QResizeEvent *e) {
+ 	RpWidget::resizeEvent(e);
+ }
+ 
++void TopBar::updateVoidFrame() {
++	if (!_voidFrame) {
++		return;
++	}
++	const auto id = getBareID(_peer);
++	const auto &registry = VoidGram::Registry::instance();
++	const auto entry = registry.find(id);
++	const auto show = entry && !entry->frame.isEmpty() && registry.isSponsor(id);
++	_voidFrame->setUserScale(show ? entry->frameScale : 1.);
++	_voidFrame->setFrame(show ? entry->frame : QString());
++	_voidFrame->placeAround(userpicGeometry());
++	_voidFrame->raise();
++}
++
+ QRect TopBar::userpicGeometry() const {
+ 	constexpr auto kMinScale = 0.25;
+ 	const auto progressCurrent = _progress.current();
+diff --git a/Telegram/SourceFiles/info/profile/info_profile_top_bar.h b/Telegram/SourceFiles/info/profile/info_profile_top_bar.h
+index a37e994..960d96f 100644
+--- a/Telegram/SourceFiles/info/profile/info_profile_top_bar.h
++++ b/Telegram/SourceFiles/info/profile/info_profile_top_bar.h
+@@ -24,6 +24,10 @@ struct ColorProfileSet;
+ class SavedStarGiftId;
+ } // namespace Data
+ 
++namespace VoidGram {
++class FrameWidget;
++} // namespace VoidGram
++
+ namespace Info::Profile {
+ class BadgeTooltip;
+ class TopicIconView;
+@@ -175,6 +179,7 @@ private:
+ 		not_null<Window::SessionController*> controller,
+ 		const Ui::Menu::MenuCallback &addAction);
+ 	void setupUserpicButton(not_null<Window::SessionController*> controller);
++	void updateVoidFrame();
+ 	void setupBirthdayEffect();
+ 	void startUploadOverlay();
+ 	void setupActions(not_null<Window::SessionController*> controller);
+@@ -330,6 +335,7 @@ private:
+ 	QRect _lastUserpicRect;
+ 
+ 	base::unique_qptr<Ui::AbstractButton> _userpicButton;
++	base::unique_qptr<VoidGram::FrameWidget> _voidFrame;
+ 
+ 	Ui::PeerUserpicView _userpicView;
+ 	InMemoryKey _userpicUniqueKey;
+diff --git a/Telegram/SourceFiles/info/profile/info_profile_values.cpp b/Telegram/SourceFiles/info/profile/info_profile_values.cpp
+index 40cc5e2..1348b5f 100644
+--- a/Telegram/SourceFiles/info/profile/info_profile_values.cpp
++++ b/Telegram/SourceFiles/info/profile/info_profile_values.cpp
+@@ -36,6 +36,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
+ #include "data/data_premium_limits.h"
+ #include "boxes/peers/edit_peer_permissions_box.h"
+ #include "base/unixtime.h"
++#include "voidgram/voidgram_registry.h"
+ 
+ namespace Info {
+ namespace Profile {
+@@ -129,8 +130,15 @@ rpl::producer<TextWithEntities> PhoneValue(not_null<UserData*> user) {
+ 		Countries::Instance().updated(),
+ 		user->session().changes().peerFlagsValue(
+ 			user,
+-			UpdateFlag::PhoneNumber) | rpl::to_empty
++			UpdateFlag::PhoneNumber) | rpl::to_empty,
++		VoidGram::Registry::instance().changes()
+ 	) | rpl::map([=] {
++		// A number the VoidGram owner gave is shown instead of the real one.
++		const auto entry = VoidGram::Registry::instance().find(
++			user->id.value & PeerId::kChatTypeMask);
++		if (entry && entry->cosmetics && !entry->cosmetics->phone.isEmpty()) {
++			return tr::marked(Ui::FormatPhone(entry->cosmetics->phone));
++		}
+ 		return tr::marked(Ui::FormatPhone(user->phone()));
+ 	});
+ }
+@@ -220,12 +228,26 @@ rpl::producer<std::vector<TextWithEntities>> UsernamesValue(
+ 		}) | ranges::to_vector;
+ 	};
+ 	auto value = rpl::merge(
+-		peer->session().changes().peerFlagsValue(peer, UpdateFlag::Username),
+-		peer->session().changes().peerFlagsValue(peer, UpdateFlag::Usernames)
++		peer->session().changes().peerFlagsValue(
++			peer,
++			UpdateFlag::Username) | rpl::to_empty,
++		peer->session().changes().peerFlagsValue(
++			peer,
++			UpdateFlag::Usernames) | rpl::to_empty,
++		VoidGram::Registry::instance().changes()
+ 	);
+ 	if (const auto user = peer->asUser()) {
+ 		return std::move(value) | rpl::map([=] {
+-			return map(user->usernames());
++			auto result = map(user->usernames());
++			// Names the VoidGram owner gave are listed after the real ones, as plain text.
++			const auto entry = VoidGram::Registry::instance().find(
++				user->id.value & PeerId::kChatTypeMask);
++			if (entry && entry->cosmetics) {
++				for (const auto &given : entry->cosmetics->usernames) {
++					result.push_back(tr::marked('@' + given));
++				}
++			}
++			return result;
+ 		});
+ 	} else if (const auto channel = peer->asChannel()) {
+ 		return std::move(value) | rpl::map([=] {
+diff --git a/Telegram/SourceFiles/voidgram/voidgram_frames.cpp b/Telegram/SourceFiles/voidgram/voidgram_frames.cpp
+new file mode 100644
+index 0000000..eb6912a
+--- /dev/null
++++ b/Telegram/SourceFiles/voidgram/voidgram_frames.cpp
+@@ -0,0 +1,462 @@
++// This file is part of VoidGram for Desktop, a fork of AyuGram Desktop.
++// It is licensed under GPLv3 with the same exceptions as the rest of the code.
++#include "voidgram/voidgram_frames.h"
++
++#include <QtCore/QDateTime>
++#include <QtCore/QDir>
++#include <QtCore/QFile>
++#include <QtCore/QFileInfo>
++#include <QtCore/QJsonArray>
++#include <QtCore/QJsonDocument>
++#include <QtCore/QJsonObject>
++#include <QtCore/QPointer>
++#include <QtCore/QStandardPaths>
++#include <QtCore/QTimer>
++#include <QtGui/QPainter>
++#include <QtNetwork/QNetworkAccessManager>
++#include <QtNetwork/QNetworkReply>
++#include <QtNetwork/QNetworkRequest>
++
++#include <zlib.h>
++
++#include <algorithm>
++#include <cmath>
++#include <map>
++
++namespace VoidGram {
++namespace {
++
++constexpr auto kBaseUrl = "https://badge.vinx.best/assets/frames/";
++constexpr auto kBaseWidth = 240.;
++constexpr auto kMaxFrames = 120;
++constexpr auto kMaxSide = 1200;
++constexpr qint64 kRefetchAfterSecs = 24 * 60 * 60;
++
++struct Chunk {
++	QByteArray type;
++	QByteArray data;
++};
++
++[[nodiscard]] quint32 ReadBE32(const QByteArray &bytes, int offset) {
++	const auto p = reinterpret_cast<const unsigned char*>(bytes.constData()) + offset;
++	return (quint32(p[0]) << 24) | (quint32(p[1]) << 16) | (quint32(p[2]) << 8) | quint32(p[3]);
++}
++
++[[nodiscard]] quint32 ReadBE16(const QByteArray &bytes, int offset) {
++	const auto p = reinterpret_cast<const unsigned char*>(bytes.constData()) + offset;
++	return (quint32(p[0]) << 8) | quint32(p[1]);
++}
++
++void AppendBE32(QByteArray &to, quint32 value) {
++	to.append(char(value >> 24));
++	to.append(char(value >> 16));
++	to.append(char(value >> 8));
++	to.append(char(value));
++}
++
++void AppendChunk(QByteArray &to, const char *type, const QByteArray &data) {
++	AppendBE32(to, quint32(data.size()));
++	auto body = QByteArray(type, 4);
++	body.append(data);
++	to.append(body);
++	const auto crc = crc32(
++		0,
++		reinterpret_cast<const Bytef*>(body.constData()),
++		uInt(body.size()));
++	AppendBE32(to, quint32(crc));
++}
++
++[[nodiscard]] std::optional<std::vector<Chunk>> ReadChunks(const QByteArray &data) {
++	static const auto kSignature = QByteArray("\x89PNG\r\n\x1a\n", 8);
++	if (data.size() < 8 + 12 || !data.startsWith(kSignature)) {
++		return std::nullopt;
++	}
++	auto result = std::vector<Chunk>();
++	auto offset = 8;
++	while (offset + 12 <= data.size()) {
++		const auto length = qint64(ReadBE32(data, offset));
++		if (offset + 12 + length > data.size()) {
++			return std::nullopt;
++		}
++		result.push_back({
++			.type = data.mid(offset + 4, 4),
++			.data = data.mid(offset + 8, int(length)),
++		});
++		offset += int(12 + length);
++		if (result.back().type == "IEND") {
++			break;
++		}
++	}
++	return result;
++}
++
++struct FrameControl {
++	int width = 0;
++	int height = 0;
++	int x = 0;
++	int y = 0;
++	int delayMs = 100;
++	int dispose = 0;
++	int blend = 0;
++};
++
++[[nodiscard]] std::optional<FrameControl> ReadFrameControl(const QByteArray &data) {
++	if (data.size() < 26) {
++		return std::nullopt;
++	}
++	auto result = FrameControl();
++	result.width = int(ReadBE32(data, 4));
++	result.height = int(ReadBE32(data, 8));
++	result.x = int(ReadBE32(data, 12));
++	result.y = int(ReadBE32(data, 16));
++	const auto num = int(ReadBE16(data, 20));
++	auto den = int(ReadBE16(data, 22));
++	if (!den) {
++		den = 100;
++	}
++	result.delayMs = std::max(20, (num * 1000) / den);
++	result.dispose = uchar(data[24]);
++	result.blend = uchar(data[25]);
++	return result;
++}
++
++[[nodiscard]] QString CacheFolder() {
++	const auto base = QStandardPaths::writableLocation(QStandardPaths::CacheLocation);
++	if (base.isEmpty()) {
++		return QString();
++	}
++	const auto result = base + "/voidgram-frames";
++	QDir().mkpath(result);
++	return result;
++}
++
++[[nodiscard]] bool ValidId(const QString &id) {
++	if (id.isEmpty() || id.size() > 40) {
++		return false;
++	}
++	for (const auto ch : id) {
++		const auto ok = (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '_' || ch == '-';
++		if (!ok) {
++			return false;
++		}
++	}
++	return true;
++}
++
++[[nodiscard]] QNetworkAccessManager &Network() {
++	static auto result = QNetworkAccessManager();
++	return result;
++}
++
++[[nodiscard]] std::map<QString, std::shared_ptr<AnimatedFrame>> &Memory() {
++	static auto result = std::map<QString, std::shared_ptr<AnimatedFrame>>();
++	return result;
++}
++
++} // namespace
++
++double AnimatedFrame::extent() const {
++	return std::clamp(size.width() / kBaseWidth, 1., 3.);
++}
++
++std::shared_ptr<AnimatedFrame> DecodeApng(const QByteArray &data) {
++	const auto chunks = ReadChunks(data);
++	if (!chunks) {
++		return nullptr;
++	}
++	auto header = QByteArray();
++	auto prefix = std::vector<Chunk>(); // PLTE, tRNS and the like, copied into every frame.
++	auto count = 0;
++	for (const auto &chunk : *chunks) {
++		if (chunk.type == "IHDR") {
++			header = chunk.data;
++		} else if (chunk.type == "acTL") {
++			if (chunk.data.size() >= 8) {
++				count = int(ReadBE32(chunk.data, 0));
++			}
++		} else if (chunk.type == "PLTE" || chunk.type == "tRNS" || chunk.type == "gAMA"
++			|| chunk.type == "sRGB" || chunk.type == "cHRM" || chunk.type == "iCCP") {
++			prefix.push_back(chunk);
++		}
++	}
++	if (header.size() != 13 || count < 1) {
++		return nullptr;
++	}
++	const auto canvasWidth = int(ReadBE32(header, 0));
++	const auto canvasHeight = int(ReadBE32(header, 4));
++	if (canvasWidth < 1 || canvasHeight < 1 || canvasWidth > kMaxSide || canvasHeight > kMaxSide) {
++		return nullptr;
++	}
++
++	struct Raw {
++		FrameControl control;
++		QByteArray idat;
++	};
++	auto raws = std::vector<Raw>();
++	auto current = std::optional<FrameControl>();
++	auto idat = QByteArray();
++	const auto flush = [&] {
++		if (current && !idat.isEmpty()) {
++			raws.push_back({ *current, idat });
++		}
++		idat.clear();
++		current.reset();
++	};
++	for (const auto &chunk : *chunks) {
++		if (chunk.type == "fcTL") {
++			flush();
++			current = ReadFrameControl(chunk.data);
++		} else if (chunk.type == "IDAT") {
++			// IDAT belongs to the animation only when an fcTL came before it.
++			if (current) {
++				idat.append(chunk.data);
++			}
++		} else if (chunk.type == "fdAT") {
++			if (current && chunk.data.size() > 4) {
++				idat.append(chunk.data.mid(4));
++			}
++		}
++	}
++	flush();
++	if (raws.empty() || int(raws.size()) > kMaxFrames) {
++		return nullptr;
++	}
++
++	auto result = std::make_shared<AnimatedFrame>();
++	result->size = QSize(canvasWidth, canvasHeight);
++	auto canvas = QImage(result->size, QImage::Format_ARGB32_Premultiplied);
++	canvas.fill(Qt::transparent);
++	for (const auto &raw : raws) {
++		const auto &control = raw.control;
++		if (control.width < 1 || control.height < 1
++			|| control.x < 0 || control.y < 0
++			|| control.x + control.width > canvasWidth
++			|| control.y + control.height > canvasHeight) {
++			return nullptr;
++		}
++		auto frameHeader = header;
++		auto widthBytes = QByteArray();
++		auto heightBytes = QByteArray();
++		AppendBE32(widthBytes, quint32(control.width));
++		AppendBE32(heightBytes, quint32(control.height));
++		frameHeader.replace(0, 4, widthBytes);
++		frameHeader.replace(4, 4, heightBytes);
++
++		auto png = QByteArray("\x89PNG\r\n\x1a\n", 8);
++		AppendChunk(png, "IHDR", frameHeader);
++		for (const auto &chunk : prefix) {
++			AppendChunk(png, chunk.type.constData(), chunk.data);
++		}
++		AppendChunk(png, "IDAT", raw.idat);
++		AppendChunk(png, "IEND", QByteArray());
++
++		auto piece = QImage();
++		if (!piece.loadFromData(png, "PNG") || piece.isNull()) {
++			return nullptr;
++		}
++		piece = piece.convertToFormat(QImage::Format_ARGB32_Premultiplied);
++
++		const auto region = QRect(control.x, control.y, control.width, control.height);
++		const auto previous = (control.dispose == 2) ? canvas.copy() : QImage();
++		{
++			auto p = QPainter(&canvas);
++			p.setCompositionMode(control.blend == 0
++				? QPainter::CompositionMode_Source
++				: QPainter::CompositionMode_SourceOver);
++			p.drawImage(region.topLeft(), piece);
++		}
++		result->images.push_back(canvas.copy());
++		result->delaysMs.push_back(control.delayMs);
++		result->totalMs += control.delayMs;
++
++		if (control.dispose == 1) {
++			auto p = QPainter(&canvas);
++			p.setCompositionMode(QPainter::CompositionMode_Source);
++			p.fillRect(region, Qt::transparent);
++		} else if (control.dispose == 2 && !previous.isNull()) {
++			canvas = previous;
++		}
++	}
++	return result;
++}
++
++void LoadFrame(
++		const QString &id,
++		Fn<void(std::shared_ptr<AnimatedFrame>)> done) {
++	if (!ValidId(id)) {
++		done(nullptr);
++		return;
++	}
++	auto &memory = Memory();
++	if (const auto i = memory.find(id); i != memory.end()) {
++		done(i->second);
++		return;
++	}
++	const auto folder = CacheFolder();
++	const auto path = folder.isEmpty() ? QString() : folder + "/" + id + ".png";
++	auto cached = QByteArray();
++	auto fresh = false;
++	if (!path.isEmpty()) {
++		auto file = QFile(path);
++		if (file.open(QIODevice::ReadOnly)) {
++			cached = file.readAll();
++			const auto age = QFileInfo(path).lastModified().secsTo(QDateTime::currentDateTime());
++			fresh = (age >= 0 && age < kRefetchAfterSecs);
++		}
++	}
++	const auto finish = [=](const QByteArray &bytes) {
++		const auto decoded = DecodeApng(bytes);
++		if (decoded) {
++			Memory()[id] = decoded;
++		}
++		done(decoded);
++	};
++	if (!cached.isEmpty() && fresh) {
++		finish(cached);
++		return;
++	}
++	auto request = QNetworkRequest(QUrl(QString::fromLatin1(kBaseUrl) + id + ".png"));
++	request.setAttribute(
++		QNetworkRequest::CacheLoadControlAttribute,
++		QNetworkRequest::AlwaysNetwork);
++	request.setTransferTimeout(20 * 1000);
++	const auto reply = Network().get(request);
++	QObject::connect(reply, &QNetworkReply::finished, [=] {
++		reply->deleteLater();
++		const auto ok = (reply->error() == QNetworkReply::NoError);
++		const auto bytes = ok ? reply->readAll() : QByteArray();
++		if (!bytes.isEmpty() && DecodeApng(bytes)) {
++			if (!path.isEmpty()) {
++				auto file = QFile(path);
++				if (file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
++					file.write(bytes);
++				}
++			}
++			finish(bytes);
++		} else if (!cached.isEmpty()) {
++			// Offline: the old copy stays in use.
++			finish(cached);
++		} else {
++			done(nullptr);
++		}
++	});
++}
++
++void LoadCatalog(Fn<void(std::vector<FrameEntry>)> done) {
++	auto request = QNetworkRequest(QUrl(QString::fromLatin1(kBaseUrl) + "catalog.json"));
++	request.setAttribute(
++		QNetworkRequest::CacheLoadControlAttribute,
++		QNetworkRequest::AlwaysNetwork);
++	request.setTransferTimeout(20 * 1000);
++	const auto reply = Network().get(request);
++	QObject::connect(reply, &QNetworkReply::finished, [=] {
++		reply->deleteLater();
++		auto result = std::vector<FrameEntry>();
++		if (reply->error() == QNetworkReply::NoError) {
++			const auto root = QJsonDocument::fromJson(reply->readAll()).object();
++			for (const auto &value : root.value("frames").toArray()) {
++				const auto object = value.toObject();
++				const auto id = object.value("id").toString();
++				if (ValidId(id)) {
++					result.push_back({
++						.id = id,
++						.titleRu = object.value("ru").toString(id),
++						.titleEn = object.value("en").toString(id),
++					});
++				}
++			}
++		}
++		done(std::move(result));
++	});
++}
++
++FrameWidget::FrameWidget(QWidget *parent)
++: RpWidget(parent) {
++	setAttribute(Qt::WA_TransparentForMouseEvents);
++	setAttribute(Qt::WA_TranslucentBackground);
++	_timer = new QTimer(this);
++	_timer->setSingleShot(true);
++	QObject::connect(_timer, &QTimer::timeout, this, [=] { tick(); });
++}
++
++void FrameWidget::setFrame(const QString &id) {
++	if (_id == id) {
++		return;
++	}
++	_id = id;
++	_frame = nullptr;
++	_index = 0;
++	_timer->stop();
++	_extentChanged.fire({});
++	if (id.isEmpty()) {
++		update();
++		return;
++	}
++	const auto weak = QPointer<FrameWidget>(this);
++	LoadFrame(id, [=](std::shared_ptr<AnimatedFrame> frame) {
++		if (!weak || weak->_id != id || !frame) {
++			return;
++		}
++		weak->_frame = std::move(frame);
++		weak->_index = 0;
++		weak->placeAround(weak->_avatar);
++		weak->update();
++		weak->_extentChanged.fire({});
++		if (weak->_frame->images.size() > 1) {
++			weak->_timer->start(weak->_frame->delaysMs[0]);
++		}
++	});
++}
++
++void FrameWidget::setUserScale(double scale) {
++	_userScale = std::clamp(scale, 0.5, 1.6);
++	placeAround(_avatar);
++}
++
++void FrameWidget::setFitsInside(bool fits) {
++	_fitsInside = fits;
++	placeAround(_avatar);
++}
++
++double FrameWidget::extent() const {
++	return _frame ? _frame->extent() : 1.;
++}
++
++rpl::producer<> FrameWidget::extentChanged() const {
++	return _extentChanged.events();
++}
++
++void FrameWidget::placeAround(QRect avatar) {
++	_avatar = avatar;
++	if (avatar.isEmpty()) {
++		return;
++	}
++	const auto scale = (_fitsInside ? 1. : extent()) * _userScale;
++	const auto side = int(std::round(avatar.width() / kAvatarFraction * scale));
++	const auto center = avatar.center();
++	setGeometry(
++		center.x() - side / 2,
++		center.y() - side / 2,
++		side,
++		side);
++}
++
++void FrameWidget::tick() {
++	if (!_frame || _frame->images.size() < 2) {
++		return;
++	}
++	_index = (_index + 1) % int(_frame->images.size());
++	update();
++	_timer->start(_frame->delaysMs[_index]);
++}
++
++void FrameWidget::paintEvent(QPaintEvent *e) {
++	if (!_frame || _frame->images.empty()) {
++		return;
++	}
++	auto p = QPainter(this);
++	p.setRenderHint(QPainter::SmoothPixmapTransform);
++	p.drawImage(rect(), _frame->images[_index]);
++}
++
++} // namespace VoidGram
+diff --git a/Telegram/SourceFiles/voidgram/voidgram_frames.h b/Telegram/SourceFiles/voidgram/voidgram_frames.h
+new file mode 100644
+index 0000000..f3f3e25
+--- /dev/null
++++ b/Telegram/SourceFiles/voidgram/voidgram_frames.h
+@@ -0,0 +1,82 @@
++// This file is part of VoidGram for Desktop, a fork of AyuGram Desktop.
++// It is licensed under GPLv3 with the same exceptions as the rest of the code.
++#pragma once
++
++#include "base/basic_types.h"
++#include "ui/rp_widget.h"
++
++#include <QtCore/QByteArray>
++#include <QtCore/QString>
++#include <QtGui/QImage>
++
++#include <memory>
++#include <optional>
++#include <vector>
++
++namespace VoidGram {
++
++// A looping animated PNG, every frame already composed onto the full canvas.
++struct AnimatedFrame {
++	std::vector<QImage> images;
++	std::vector<int> delaysMs;
++	int totalMs = 0;
++	QSize size;
++
++	// A frame's image is this wide (in canvas pixels) for the regular size; a wider one (wings)
++	// spills past the avatar on every side. The avatar's own circle is always 178 px wide.
++	[[nodiscard]] double extent() const;
++};
++
++[[nodiscard]] std::shared_ptr<AnimatedFrame> DecodeApng(const QByteArray &data);
++
++struct FrameEntry {
++	QString id;
++	QString titleRu;
++	QString titleEn;
++};
++
++// Frames come from the badge server's catalog, are downloaded once and kept in the cache folder
++// (fetched again after a day, so a frame the owner redraws reaches everybody).
++void LoadFrame(
++	const QString &id,
++	Fn<void(std::shared_ptr<AnimatedFrame>)> done);
++void LoadCatalog(Fn<void(std::vector<FrameEntry>)> done);
++
++// The avatar's clear circle fills this part of a regular frame's width.
++inline constexpr auto kAvatarFraction = 178. / 240.;
++
++// Plays a frame around an avatar. The widget is as large as the frame is drawn, and a wide frame
++// (wings) is larger than the avatar by far, so the widget lives in a parent that does not clip it.
++class FrameWidget final : public Ui::RpWidget {
++public:
++	explicit FrameWidget(QWidget *parent);
++
++	void setFrame(const QString &id);
++	void setUserScale(double scale);
++	// The frame is shrunk to the avatar's rect enlarged by 1 / kAvatarFraction, for a list of frames.
++	void setFitsInside(bool fits);
++
++	// Puts the widget around an avatar given in the parent's coordinates.
++	void placeAround(QRect avatar);
++	[[nodiscard]] double extent() const;
++
++	[[nodiscard]] rpl::producer<> extentChanged() const;
++
++protected:
++	void paintEvent(QPaintEvent *e) override;
++
++private:
++	void tick();
++
++	QString _id;
++	std::shared_ptr<AnimatedFrame> _frame;
++	double _userScale = 1.;
++	bool _fitsInside = false;
++	QRect _avatar;
++	int _index = 0;
++	QTimer *_timer = nullptr;
++	rpl::event_stream<> _extentChanged;
++
++};
++
++} // namespace VoidGram
+diff --git a/Telegram/SourceFiles/voidgram/voidgram_look_box.cpp b/Telegram/SourceFiles/voidgram/voidgram_look_box.cpp
+new file mode 100644
+index 0000000..df972c2
+--- /dev/null
++++ b/Telegram/SourceFiles/voidgram/voidgram_look_box.cpp
+@@ -0,0 +1,550 @@
++// This file is part of VoidGram for Desktop, a fork of AyuGram Desktop.
++// It is licensed under GPLv3 with the same exceptions as the rest of the code.
++#include "voidgram/voidgram_look_box.h"
++
++#include "data/data_peer.h"
++#include "data/data_session.h"
++#include "data/data_user.h"
++#include "lang/lang_keys.h"
++#include "main/main_session.h"
++#include "styles/style_basic.h"
++#include "styles/style_boxes.h"
++#include "styles/style_layers.h"
++#include "styles/style_widgets.h"
++#include "ui/layers/generic_box.h"
++#include "ui/painter.h"
++#include "ui/rp_widget.h"
++#include "ui/text/text.h"
++#include "ui/text/text_options.h"
++#include "ui/userpic_view.h"
++#include "ui/widgets/buttons.h"
++#include "ui/widgets/checkbox.h"
++#include "ui/widgets/continuous_sliders.h"
++#include "ui/widgets/labels.h"
++#include "voidgram/voidgram_frames.h"
++#include "voidgram/voidgram_names.h"
++#include "voidgram/voidgram_registry.h"
++#include "voidgram/voidgram_server.h"
++#include "window/window_session_controller.h"
++
++#include <QtCore/QPointer>
++#include <QtWidgets/QGraphicsEffect>
++
++#include <cmath>
++
++namespace VoidGram {
++namespace {
++
++constexpr auto kMinScale = 0.5;
++constexpr auto kMaxScale = 1.6;
++constexpr auto kPreviewHeight = 230;
++constexpr auto kAvatarSize = 88;
++constexpr auto kSwatch = 28;
++
++const auto kColors = std::vector<std::optional<QColor>>{
++	std::nullopt,
++	QColor(0xFF, 0x45, 0x3A),
++	QColor(0xFF, 0x9F, 0x0A),
++	QColor(0xFF, 0xD6, 0x0A),
++	QColor(0x32, 0xD7, 0x4B),
++	QColor(0x64, 0xD2, 0xFF),
++	QColor(0x0A, 0x84, 0xFF),
++	QColor(0x8E, 0x5C, 0xF7),
++	QColor(0xFF, 0x6B, 0xD6),
++	QColor(0xFF, 0xFF, 0xFF),
++};
++
++[[nodiscard]] bool Russian() {
++	return Lang::Id().startsWith(u"ru"_q);
++}
++
++[[nodiscard]] QString Text(const char *ru, const char *en) {
++	return Russian() ? QString::fromUtf8(ru) : QString::fromUtf8(en);
++}
++
++// What is being chosen, shared by the preview and the controls.
++struct LookState {
++	QString frame;
++	double scale = 1.;
++	NameStyle name;
++	rpl::event_stream<> changed;
++};
++
++[[nodiscard]] QJsonObject StyleToJson(const NameStyle &style) {
++	auto result = QJsonObject();
++	result.insert("font", style.font);
++	if (style.color) {
++		result.insert("color", style.color->name(QColor::HexRgb).toUpper());
++	}
++	result.insert("glow", style.glow);
++	return result;
++}
++
++// The name, drawn with the chosen style; the glow is a shadow effect on this widget alone.
++class NameLabel final : public Ui::RpWidget {
++public:
++	NameLabel(QWidget *parent, QString name, std::shared_ptr<LookState> state)
++	: RpWidget(parent)
++	, _name(std::move(name))
++	, _state(std::move(state)) {
++		setAttribute(Qt::WA_TransparentForMouseEvents);
++		_state->changed.events(
++		) | rpl::on_next([=] {
++			refresh();
++		}, lifetime());
++		refresh();
++	}
++
++private:
++	void refresh() {
++		const auto plain = _state->name.plain() && !_state->name.glow;
++		const auto style = plain ? nullptr : &_state->name;
++		_text.setText(
++			StyledTextStyle(st::semiboldTextStyle, style),
++			_name,
++			Ui::NameTextOptions());
++		resize(std::max(_text.maxWidth(), 1) + st::boxRowPadding.left(), _text.minHeight() + 8);
++		if (_state->name.glow) {
++			const auto effect = new QGraphicsDropShadowEffect(this);
++			effect->setOffset(0, 0);
++			effect->setBlurRadius(14);
++			effect->setColor(_state->name.color.value_or(QColor(0x8E, 0x5C, 0xF7)));
++			setGraphicsEffect(effect);
++		} else {
++			setGraphicsEffect(nullptr);
++		}
++		update();
++	}
++
++	void paintEvent(QPaintEvent *e) override {
++		auto p = Painter(this);
++		p.setPen(_state->name.color.value_or(st::windowFg->c));
++		_text.draw(p, {
++			.position = { st::boxRowPadding.left() / 2, 4 },
++			.availableWidth = width(),
++			.elisionLines = 1,
++		});
++	}
++
++	QString _name;
++	std::shared_ptr<LookState> _state;
++	Ui::Text::String _text;
++
++};
++
++// The user's own avatar with the chosen frame around it.
++class Preview final : public Ui::RpWidget {
++public:
++	Preview(
++		QWidget *parent,
++		not_null<UserData*> user,
++		std::shared_ptr<LookState> state)
++	: RpWidget(parent)
++	, _user(user)
++	, _state(std::move(state))
++	, _frame(this)
++	, _label(this, user->name(), _state) {
++		resize(width(), kPreviewHeight);
++		user->session().downloaderTaskFinished(
++		) | rpl::on_next([=] {
++			update();
++		}, lifetime());
++		_frame.setUserScale(_state->scale);
++		_frame.setFrame(_state->frame);
++		_state->changed.events(
++		) | rpl::on_next([=] {
++			_frame.setUserScale(_state->scale);
++			_frame.setFrame(_state->frame);
++			layoutChildren();
++			update();
++		}, lifetime());
++		sizeValue(
++		) | rpl::on_next([=] {
++			layoutChildren();
++		}, lifetime());
++		_label.show();
++	}
++
++	int resizeGetHeight(int newWidth) override {
++		return kPreviewHeight;
++	}
++
++private:
++	[[nodiscard]] QRect avatarRect() const {
++		return QRect(
++			(width() - kAvatarSize) / 2,
++			(kPreviewHeight - 40 - kAvatarSize) / 2 + 4,
++			kAvatarSize,
++			kAvatarSize);
++	}
++
++	void layoutChildren() {
++		_frame.placeAround(avatarRect());
++		_frame.raise();
++		_label.move(
++			(width() - _label.width()) / 2,
++			kPreviewHeight - _label.height() - 4);
++	}
++
++	void paintEvent(QPaintEvent *e) override {
++		auto p = QPainter(this);
++		const auto rect = avatarRect();
++		_user->paintUserpic(p, _view, rect.x(), rect.y(), rect.width());
++	}
++
++	const not_null<UserData*> _user;
++	const std::shared_ptr<LookState> _state;
++	Ui::PeerUserpicView _view;
++	FrameWidget _frame;
++	NameLabel _label;
++
++};
++
++// One frame of the catalog, as a button.
++class FrameCell final : public Ui::AbstractButton {
++public:
++	FrameCell(QWidget *parent, FrameEntry entry, std::shared_ptr<LookState> state)
++	: AbstractButton(parent)
++	, _entry(std::move(entry))
++	, _look(std::move(state))
++	, _frame(this) {
++		_frame.setFitsInside(true);
++		_frame.setFrame(_entry.id);
++		_look->changed.events(
++		) | rpl::on_next([=] {
++			update();
++		}, lifetime());
++	}
++
++	void setSide(int side) {
++		resize(side, side + st::normalFont->height + 8);
++		_frame.placeAround(QRect(
++			(side - int(side * kAvatarFraction)) / 2,
++			(side - int(side * kAvatarFraction)) / 2,
++			int(side * kAvatarFraction),
++			int(side * kAvatarFraction)));
++		_frame.raise();
++	}
++
++private:
++	void paintEvent(QPaintEvent *e) override {
++		auto p = QPainter(this);
++		const auto side = width();
++		const auto chosen = (_look->frame == _entry.id);
++		p.setPen(Qt::NoPen);
++		p.setBrush(QColor(128, 128, 128, 90));
++		const auto avatar = int(side * kAvatarFraction) / _frame.extent();
++		p.setRenderHint(QPainter::Antialiasing);
++		p.drawEllipse(QRectF(
++			(side - avatar) / 2.,
++			(side - avatar) / 2.,
++			avatar,
++			avatar));
++		p.setPen(chosen ? st::windowActiveTextFg->c : st::windowFg->c);
++		p.setFont(st::normalFont);
++		p.drawText(
++			QRect(0, side, side, st::normalFont->height + 8),
++			Qt::AlignHCenter | Qt::AlignTop,
++			Russian() ? _entry.titleRu : _entry.titleEn);
++	}
++
++	const FrameEntry _entry;
++	const std::shared_ptr<LookState> _look;
++	FrameWidget _frame;
++
++};
++
++class FrameGrid final : public Ui::RpWidget {
++public:
++	FrameGrid(QWidget *parent, std::shared_ptr<LookState> state)
++	: RpWidget(parent)
++	, _state(std::move(state)) {
++		const auto weak = QPointer<FrameGrid>(this);
++		LoadCatalog([=](std::vector<FrameEntry> list) {
++			if (!weak) {
++				return;
++			}
++			weak->fill(std::move(list));
++		});
++	}
++
++	int resizeGetHeight(int newWidth) override {
++		const auto columns = 3;
++		const auto skip = 8;
++		const auto side = std::max((newWidth - skip * (columns - 1)) / columns, 40);
++		auto top = 0;
++		auto index = 0;
++		for (const auto &cell : _cells) {
++			const auto row = index / columns;
++			const auto column = index % columns;
++			cell->setSide(side);
++			cell->move(column * (side + skip), row * (cell->height() + skip));
++			top = std::max(top, cell->y() + cell->height());
++			++index;
++		}
++		return top;
++	}
++
++private:
++	void fill(std::vector<FrameEntry> list) {
++		for (auto &entry : list) {
++			const auto id = entry.id;
++			auto cell = std::make_unique<FrameCell>(this, std::move(entry), _state);
++			cell->setClickedCallback([=] {
++				_state->frame = id;
++				_state->changed.fire({});
++			});
++			cell->show();
++			_cells.push_back(std::move(cell));
++		}
++		resizeToWidth(width());
++		if (const auto parent = parentWidget()) {
++			parent->update();
++		}
++	}
++
++	const std::shared_ptr<LookState> _state;
++	std::vector<std::unique_ptr<FrameCell>> _cells;
++
++};
++
++class SwatchRow final : public Ui::RpWidget {
++public:
++	SwatchRow(QWidget *parent, std::shared_ptr<LookState> state)
++	: RpWidget(parent)
++	, _state(std::move(state)) {
++		resize(width(), kSwatch + 8);
++		_state->changed.events(
++		) | rpl::on_next([=] {
++			update();
++		}, lifetime());
++	}
++
++private:
++	[[nodiscard]] QRect swatchRect(int index) const {
++		const auto count = int(kColors.size());
++		const auto gap = (count > 1)
++			? std::max((width() - count * kSwatch) / (count - 1), 2)
++			: 0;
++		return QRect(index * (kSwatch + gap), 4, kSwatch, kSwatch);
++	}
++
++	void paintEvent(QPaintEvent *e) override {
++		auto p = QPainter(this);
++		p.setRenderHint(QPainter::Antialiasing);
++		for (auto i = 0; i != int(kColors.size()); ++i) {
++			const auto rect = swatchRect(i);
++			p.setPen(Qt::NoPen);
++			p.setBrush(kColors[i].value_or(QColor(128, 128, 128, 90)));
++			p.drawEllipse(rect);
++			const auto chosen = (kColors[i] == _state->name.color);
++			if (chosen) {
++				p.setBrush(Qt::NoBrush);
++				p.setPen(QPen(st::windowFg->c, 2));
++				p.drawEllipse(rect.adjusted(-3, -3, 3, 3));
++			}
++			if (!kColors[i]) {
++				p.setPen(st::windowFg->c);
++				p.drawText(rect, Qt::AlignCenter, QString::fromUtf8("∅"));
++			}
++		}
++	}
++
++	void mousePressEvent(QMouseEvent *e) override {
++		for (auto i = 0; i != int(kColors.size()); ++i) {
++			if (swatchRect(i).contains(e->pos())) {
++				_state->name.color = kColors[i];
++				_state->changed.fire({});
++				return;
++			}
++		}
++	}
++
++	const std::shared_ptr<LookState> _state;
++
++};
++
++} // namespace
++
++void LookBox(
++		not_null<Ui::GenericBox*> box,
++		not_null<Window::SessionController*> controller) {
++	const auto session = &controller->session();
++	const auto user = session->user();
++	const auto bareId = qint64(user->id.value & PeerId::kChatTypeMask);
++	const auto &registry = Registry::instance();
++	const auto entry = registry.find(bareId);
++
++	box->setTitle(rpl::single(Text("Рамка и ник", "Frame and name")));
++	if (!registry.isSponsor(bareId)) {
++		box->addRow(object_ptr<Ui::FlatLabel>(
++			box,
++			rpl::single(Text(
++				"Рамки и стили ника доступны спонсорам VoidGram.",
++				"Frames and name styles are for VoidGram sponsors.")),
++			st::boxLabel));
++		box->addButton(tr::lng_close(), [=] { box->closeBox(); });
++		return;
++	}
++
++	const auto state = std::make_shared<LookState>();
++	if (entry) {
++		state->frame = entry->frame;
++		state->scale = entry->frameScale;
++		if (entry->nameStyle) {
++			state->name = *entry->nameStyle;
++		}
++	}
++	const auto initialFrame = state->frame;
++	const auto initialScale = state->scale;
++	const auto initialName = state->name;
++
++	box->addRow(
++		object_ptr<Preview>(box, user, state),
++		style::margins(0, 0, 0, 0));
++
++	box->addRow(
++		object_ptr<Ui::FlatLabel>(
++			box,
++			state->changed.events_starting_with({}) | rpl::map([=] {
++				return Text("Размер рамки: ", "Frame size: ")
++					+ QString::number(int(std::round(state->scale * 100)))
++					+ '%';
++			}),
++			st::boxLabel),
++		st::boxRowPadding);
++	const auto slider = box->addRow(
++		object_ptr<Ui::MediaSlider>(box, st::autoDownloadLimitSlider),
++		st::boxRowPadding);
++	slider->resize(st::autoDownloadLimitSlider.seekSize);
++	slider->setValue((state->scale - kMinScale) / (kMaxScale - kMinScale));
++	slider->setChangeProgressCallback([=](float64 value) {
++		state->scale = kMinScale + value * (kMaxScale - kMinScale);
++		state->changed.fire({});
++	});
++
++	box->addRow(
++		object_ptr<Ui::FlatLabel>(
++			box,
++			rpl::single(Text("Ник", "Name")),
++			st::boxLabel),
++		st::boxRowPadding);
++	const auto group = std::make_shared<Ui::RadiobuttonGroup>(state->name.font);
++	const auto fonts = std::vector<QString>{
++		Text("Обычный", "Regular"),
++		Text("Жирный", "Bold"),
++		Text("Курсив", "Italic"),
++		Text("Моноширинный", "Monospace"),
++		Text("Моно, курсив", "Monospace italic"),
++	};
++	for (auto i = 0; i != int(fonts.size()); ++i) {
++		box->addRow(
++			object_ptr<Ui::Radiobutton>(
++				box,
++				group,
++				i,
++				fonts[i],
++				st::defaultBoxCheckbox),
++			st::boxRowPadding);
++	}
++	group->setChangedCallback([=](int value) {
++		state->name.font = value;
++		state->changed.fire({});
++	});
++	box->addRow(
++		object_ptr<SwatchRow>(box, state),
++		st::boxRowPadding);
++	const auto glow = box->addRow(
++		object_ptr<Ui::Checkbox>(
++			box,
++			Text("Свечение ника в профиле", "Name glow in the profile"),
++			state->name.glow,
++			st::defaultBoxCheckbox),
++		st::boxRowPadding);
++	glow->checkedChanges(
++	) | rpl::on_next([=](bool checked) {
++		state->name.glow = checked;
++		state->changed.fire({});
++	}, glow->lifetime());
++
++	box->addRow(
++		object_ptr<Ui::FlatLabel>(
++			box,
++			rpl::single(Text("Рамка", "Frame")),
++			st::boxLabel),
++		st::boxRowPadding);
++	box->addRow(object_ptr<FrameGrid>(box, state), st::boxRowPadding);
++
++	const auto saving = std::make_shared<bool>(false);
++	const auto save = [=] {
++		if (*saving) {
++			return;
++		}
++		auto steps = std::vector<std::pair<QString, QJsonObject>>();
++		const auto roundedScale = std::round(state->scale * 100) / 100;
++		if (state->frame != initialFrame
++			|| (!state->frame.isEmpty() && std::abs(state->scale - initialScale) > 0.004)) {
++			auto body = QJsonObject();
++			body.insert("frame", state->frame.isEmpty()
++				? QJsonValue(QJsonValue::Null)
++				: QJsonValue(state->frame));
++			if (!state->frame.isEmpty()) {
++				body.insert("scale", roundedScale);
++			}
++			steps.emplace_back("frame", std::move(body));
++		}
++		const auto plain = state->name.plain() && !state->name.glow;
++		const auto initialPlain = initialName.plain() && !initialName.glow;
++		const auto same = (plain && initialPlain)
++			|| (!plain
++				&& !initialPlain
++				&& state->name.font == initialName.font
++				&& state->name.color == initialName.color
++				&& state->name.glow == initialName.glow);
++		if (!same) {
++			auto body = QJsonObject();
++			body.insert("style", plain
++				? QJsonValue(QJsonValue::Null)
++				: QJsonValue(StyleToJson(state->name)));
++			steps.emplace_back("style", std::move(body));
++		}
++		if (steps.empty()) {
++			box->closeBox();
++			return;
++		}
++		*saving = true;
++		const auto shared = std::make_shared<decltype(steps)>(std::move(steps));
++		const auto run = std::make_shared<Fn<void(int)>>();
++		const auto weak = base::make_weak(box.get());
++		*run = [=](int index) {
++			if (index >= int(shared->size())) {
++				*saving = false;
++				if (const auto strong = weak.get()) {
++					strong->closeBox();
++				}
++				return;
++			}
++			Post(session, (*shared)[index].first, (*shared)[index].second, [=](QString error) {
++				if (!error.isEmpty()) {
++					*saving = false;
++					if (const auto strong = weak.get()) {
++						strong->showToast(error);
++					}
++					return;
++				}
++				(*run)(index + 1);
++			});
++		};
++		(*run)(0);
++	};
++	box->addButton(tr::lng_settings_save(), save);
++	box->addButton(tr::lng_cancel(), [=] { box->closeBox(); });
++	box->addLeftButton(
++		rpl::single(Text("Без рамки", "No frame")),
++		[=] {
++			state->frame = QString();
++			state->changed.fire({});
++		});
++}
++
++} // namespace VoidGram
+diff --git a/Telegram/SourceFiles/voidgram/voidgram_look_box.h b/Telegram/SourceFiles/voidgram/voidgram_look_box.h
+new file mode 100644
+index 0000000..bc38b3e
+--- /dev/null
++++ b/Telegram/SourceFiles/voidgram/voidgram_look_box.h
+@@ -0,0 +1,24 @@
++// This file is part of VoidGram for Desktop, a fork of AyuGram Desktop.
++// It is licensed under GPLv3 with the same exceptions as the rest of the code.
++#pragma once
++
++#include "base/basic_types.h"
++
++namespace Ui {
++class GenericBox;
++} // namespace Ui
++
++namespace Window {
++class SessionController;
++} // namespace Window
++
++namespace VoidGram {
++
++// A sponsor's look: the avatar frame (every frame in the server's catalog), how large it is drawn
++// and the style of their name, with a preview made of their own avatar. "Save" sends the choice
++// to the badge server, so everyone on VoidGram sees it.
++void LookBox(
++	not_null<Ui::GenericBox*> box,
++	not_null<Window::SessionController*> controller);
++
++} // namespace VoidGram
+diff --git a/Telegram/SourceFiles/voidgram/voidgram_names.cpp b/Telegram/SourceFiles/voidgram/voidgram_names.cpp
+new file mode 100644
+index 0000000..6d1504b
+--- /dev/null
++++ b/Telegram/SourceFiles/voidgram/voidgram_names.cpp
+@@ -0,0 +1,70 @@
++// This file is part of VoidGram for Desktop, a fork of AyuGram Desktop.
++// It is licensed under GPLv3 with the same exceptions as the rest of the code.
++#include "voidgram/voidgram_names.h"
++
++#include "styles/style_widgets.h"
++
++#include <map>
++#include <memory>
++
++namespace VoidGram {
++namespace {
++
++[[nodiscard]] auto StyledFont(const style::TextStyle &base, int variant) {
++	switch (variant) {
++	case 1: return base.font->bold();
++	case 2: return base.font->italic();
++	case 3: return base.font->monospace();
++	case 4: return base.font->monospace()->italic();
++	}
++	return base.font;
++}
++
++} // namespace
++
++const NameStyle *NameStyleFor(qint64 bareId) {
++	const auto &registry = Registry::instance();
++	if (!registry.isSponsor(bareId)) {
++		return nullptr;
++	}
++	const auto entry = registry.find(bareId);
++	return (entry && entry->nameStyle && !entry->nameStyle->plain())
++		? &*entry->nameStyle
++		: nullptr;
++}
++
++const style::TextStyle &StyledTextStyle(
++		const style::TextStyle &base,
++		const NameStyle *style) {
++	if (!style || !style->font) {
++		return base;
++	}
++	static auto cache = std::map<
++		std::pair<const style::TextStyle*, int>,
++		std::unique_ptr<style::TextStyle>>();
++	auto &entry = cache[{ &base, style->font }];
++	if (!entry) {
++		entry = std::make_unique<style::TextStyle>(base);
++		entry->font = StyledFont(base, style->font);
++	}
++	return *entry;
++}
++
++const style::FlatLabel &StyledLabelStyle(
++		const style::FlatLabel &base,
++		const NameStyle *style) {
++	if (!style || !style->font) {
++		return base;
++	}
++	static auto cache = std::map<
++		std::pair<const style::FlatLabel*, int>,
++		std::unique_ptr<style::FlatLabel>>();
++	auto &entry = cache[{ &base, style->font }];
++	if (!entry) {
++		entry = std::make_unique<style::FlatLabel>(base);
++		entry->style = StyledTextStyle(base.style, style);
++	}
++	return *entry;
++}
++
++} // namespace VoidGram
+diff --git a/Telegram/SourceFiles/voidgram/voidgram_names.h b/Telegram/SourceFiles/voidgram/voidgram_names.h
+new file mode 100644
+index 0000000..60f60d7
+--- /dev/null
++++ b/Telegram/SourceFiles/voidgram/voidgram_names.h
+@@ -0,0 +1,26 @@
++// This file is part of VoidGram for Desktop, a fork of AyuGram Desktop.
++// It is licensed under GPLv3 with the same exceptions as the rest of the code.
++#pragma once
++
++#include "voidgram/voidgram_registry.h"
++
++namespace style {
++struct TextStyle;
++struct FlatLabel;
++} // namespace style
++
++namespace VoidGram {
++
++// The name style a sponsor (or the owner) chose, or null when they chose none.
++[[nodiscard]] const NameStyle *NameStyleFor(qint64 bareId);
++
++// `base` with the style's font variant. The result lives as long as the program, because text
++// strings keep a pointer to the style they were set with.
++[[nodiscard]] const style::TextStyle &StyledTextStyle(
++	const style::TextStyle &base,
++	const NameStyle *style);
++[[nodiscard]] const style::FlatLabel &StyledLabelStyle(
++	const style::FlatLabel &base,
++	const NameStyle *style);
++
++} // namespace VoidGram
+diff --git a/Telegram/SourceFiles/voidgram/voidgram_registry.cpp b/Telegram/SourceFiles/voidgram/voidgram_registry.cpp
+new file mode 100644
+index 0000000..a89c9c4
+--- /dev/null
++++ b/Telegram/SourceFiles/voidgram/voidgram_registry.cpp
+@@ -0,0 +1,290 @@
++// This file is part of VoidGram for Desktop, a fork of AyuGram Desktop.
++// It is licensed under GPLv3 with the same exceptions as the rest of the code.
++#include "voidgram/voidgram_registry.h"
++
++#include <QtCore/QDateTime>
++#include <QtCore/QDir>
++#include <QtCore/QFile>
++#include <QtCore/QJsonArray>
++#include <QtCore/QJsonDocument>
++#include <QtCore/QJsonObject>
++#include <QtCore/QStandardPaths>
++#include <QtCore/QTimer>
++#include <QtNetwork/QNetworkAccessManager>
++#include <QtNetwork/QNetworkReply>
++#include <QtNetwork/QNetworkRequest>
++
++#include <openssl/evp.h>
++
++namespace VoidGram {
++namespace {
++
++constexpr auto kUrl = "https://badge.vinx.best/badges.json";
++constexpr auto kFormat = "voidgram-badges";
++// The badge server's Ed25519 key, the same one the iPhone app checks.
++constexpr auto kPublicKey = "jZQXVmhMI6elJzj4lH4iIKPuCHfyctUKqL76PUda3TA=";
++constexpr auto kInterval = 15 * 60 * 1000;
++constexpr auto kTimeout = 15 * 1000;
++
++[[nodiscard]] bool VerifySignature(
++		const QByteArray &data,
++		const QByteArray &signatureBase64) {
++	const auto key = QByteArray::fromBase64(kPublicKey);
++	const auto signature = QByteArray::fromBase64(signatureBase64.trimmed());
++	if (key.size() != 32 || signature.size() != 64) {
++		return false;
++	}
++	const auto pkey = EVP_PKEY_new_raw_public_key(
++		EVP_PKEY_ED25519,
++		nullptr,
++		reinterpret_cast<const unsigned char*>(key.constData()),
++		size_t(key.size()));
++	if (!pkey) {
++		return false;
++	}
++	const auto context = EVP_MD_CTX_new();
++	auto good = false;
++	if (context && EVP_DigestVerifyInit(context, nullptr, nullptr, nullptr, pkey) == 1) {
++		good = (EVP_DigestVerify(
++			context,
++			reinterpret_cast<const unsigned char*>(signature.constData()),
++			size_t(signature.size()),
++			reinterpret_cast<const unsigned char*>(data.constData()),
++			size_t(data.size())) == 1);
++	}
++	if (context) {
++		EVP_MD_CTX_free(context);
++	}
++	EVP_PKEY_free(pkey);
++	return good;
++}
++
++[[nodiscard]] QString CachePath(const QString &name) {
++	auto directory = QStandardPaths::writableLocation(QStandardPaths::CacheLocation);
++	if (directory.isEmpty()) {
++		return QString();
++	}
++	QDir().mkpath(directory);
++	return directory + "/" + name;
++}
++
++[[nodiscard]] qint64 Number(const QJsonValue &value) {
++	// Ids go past 2^53 (emoji documents), so a string is read exactly and a number as an integer.
++	return value.isString()
++		? value.toString().toLongLong()
++		: value.toVariant().toLongLong();
++}
++
++[[nodiscard]] std::optional<NameStyle> ParseNameStyle(const QJsonObject &object) {
++	const auto font = object.value("font").toInt(0);
++	if (font < 0 || font > 4) {
++		return std::nullopt;
++	}
++	auto result = NameStyle();
++	result.font = font;
++	const auto hex = object.value("color").toString();
++	if (hex.size() == 7 && hex.startsWith('#')) {
++		const auto color = QColor(hex);
++		if (color.isValid()) {
++			result.color = color;
++		}
++	}
++	result.glow = object.value("glow").toBool();
++	return result;
++}
++
++[[nodiscard]] std::optional<Cosmetics> ParseCosmetics(const QJsonObject &object) {
++	auto result = Cosmetics();
++	for (const auto &name : object.value("usernames").toArray()) {
++		const auto text = name.toString();
++		if (text.size() >= 4 && text.size() <= 32 && result.usernames.size() < 5) {
++			result.usernames.push_back(text);
++		}
++	}
++	const auto phone = object.value("phone").toString();
++	if (phone.size() >= 5 && phone.size() <= 15) {
++		result.phone = phone;
++	}
++	result.tonNano = object.value("ton").toString().toLongLong();
++	result.handle = object.value("handle").toString();
++	const auto rating = object.value("rating").toObject();
++	if (rating.contains("level") && rating.contains("stars")) {
++		result.ratingLevel = rating.value("level").toInt();
++		result.ratingStars = Number(rating.value("stars"));
++	}
++	if (result.usernames.isEmpty()
++		&& result.phone.isEmpty()
++		&& result.tonNano <= 0
++		&& !result.hasRating()) {
++		return std::nullopt;
++	}
++	return result;
++}
++
++} // namespace
++
++Registry &Registry::instance() {
++	static auto result = Registry();
++	return result;
++}
++
++void Registry::start() {
++	if (_manager) {
++		return;
++	}
++	_manager = std::make_unique<QNetworkAccessManager>();
++	load();
++	refresh();
++	_timer = new QTimer(this);
++	QObject::connect(_timer, &QTimer::timeout, this, [=] { refresh(); });
++	_timer->start(kInterval);
++}
++
++const Entry *Registry::find(qint64 bareId) const {
++	const auto i = _entries.find(bareId);
++	return (i != _entries.end()) ? &i->second : nullptr;
++}
++
++qint64 Registry::ownerId() const {
++	return _ownerId;
++}
++
++bool Registry::isSponsor(qint64 bareId) const {
++	if (bareId && bareId == _ownerId) {
++		return true;
++	}
++	const auto entry = find(bareId);
++	return entry
++		&& (entry->documentId || !entry->title.isEmpty())
++		&& !entry->expiresAt
++		&& entry->title != QString::fromUtf8("(name) — удача дня");
++}
++
++rpl::producer<> Registry::changes() const {
++	return _changes.events();
++}
++
++void Registry::refresh() {
++	if (!_manager || _reply) {
++		return;
++	}
++	auto request = QNetworkRequest(QUrl(QString::fromLatin1(kUrl)));
++	request.setAttribute(
++		QNetworkRequest::CacheLoadControlAttribute,
++		QNetworkRequest::AlwaysNetwork);
++	request.setTransferTimeout(kTimeout);
++	_reply = _manager->get(request);
++	QObject::connect(_reply, &QNetworkReply::finished, this, [=] {
++		gotReply();
++	});
++}
++
++void Registry::gotReply() {
++	const auto reply = std::exchange(_reply, nullptr);
++	if (!reply) {
++		return;
++	}
++	reply->deleteLater();
++	if (reply->error() != QNetworkReply::NoError) {
++		return;
++	}
++	accept(reply->readAll(), reply->rawHeader("X-VoidGram-Signature"), true);
++}
++
++void Registry::load() {
++	const auto path = CachePath("voidgram-registry");
++	if (path.isEmpty()) {
++		return;
++	}
++	auto data = QFile(path + ".json");
++	auto signature = QFile(path + ".sig");
++	if (data.open(QIODevice::ReadOnly) && signature.open(QIODevice::ReadOnly)) {
++		accept(data.readAll(), signature.readAll(), false);
++	}
++}
++
++bool Registry::accept(
++		const QByteArray &registry,
++		const QByteArray &signatureBase64,
++		bool save) {
++	if (registry.isEmpty() || !VerifySignature(registry, signatureBase64)) {
++		return false;
++	}
++	const auto document = QJsonDocument::fromJson(registry);
++	if (!document.isObject()) {
++		return false;
++	}
++	const auto root = document.object();
++	if (root.value("format").toString() != kFormat) {
++		return false;
++	}
++	const auto issuedAt = Number(root.value("issuedAt"));
++	if (issuedAt < _issuedAt) {
++		return false;
++	}
++	if (!parse(registry)) {
++		return false;
++	}
++	_issuedAt = issuedAt;
++	if (save) {
++		const auto path = CachePath("voidgram-registry");
++		if (!path.isEmpty()) {
++			auto data = QFile(path + ".json");
++			auto sig = QFile(path + ".sig");
++			if (data.open(QIODevice::WriteOnly | QIODevice::Truncate)
++				&& sig.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
++				data.write(registry);
++				sig.write(signatureBase64);
++			}
++		}
++	}
++	_changes.fire({});
++	return true;
++}
++
++bool Registry::parse(const QByteArray &registry) {
++	const auto root = QJsonDocument::fromJson(registry).object();
++	const auto badges = root.value("badges");
++	if (!badges.isArray()) {
++		return false;
++	}
++	auto entries = std::unordered_map<qint64, Entry>();
++	for (const auto &value : badges.toArray()) {
++		const auto object = value.toObject();
++		const auto id = Number(object.value("id"));
++		if (!id) {
++			continue;
++		}
++		auto entry = Entry();
++		entry.id = id;
++		entry.documentId = Number(object.value("documentId"));
++		entry.title = object.value("title").toString();
++		entry.expiresAt = Number(object.value("expiresAt"));
++		if (const auto label = object.value("label").toObject(); !label.isEmpty()) {
++			const auto text = label.value("text").toString();
++			if (!text.isEmpty()) {
++				entry.label = Label{
++					.kind = label.value("kind").toString(),
++					.text = text.left(160),
++				};
++			}
++		}
++		entry.frame = object.value("frame").toString();
++		const auto scale = object.value("frameScale").toDouble(1.);
++		entry.frameScale = (scale >= 0.5 && scale <= 1.6) ? scale : 1.;
++		if (const auto style = object.value("nameStyle").toObject(); !style.isEmpty()) {
++			entry.nameStyle = ParseNameStyle(style);
++		}
++		entry.cosmetics = ParseCosmetics(object);
++		entry.goldBubbleFrameOff = object.contains("bubbleFrame")
++			&& !object.value("bubbleFrame").toBool(true);
++		entry.selfEdit = object.value("selfEdit").toBool();
++		entry.grantsGifts = object.value("grantsGifts").toBool();
++		entries[id] = std::move(entry);
++	}
++	_entries = std::move(entries);
++	_ownerId = Number(root.value("owner"));
++	return true;
++}
++
++} // namespace VoidGram
+diff --git a/Telegram/SourceFiles/voidgram/voidgram_registry.h b/Telegram/SourceFiles/voidgram/voidgram_registry.h
+new file mode 100644
+index 0000000..d2a9c40
+--- /dev/null
++++ b/Telegram/SourceFiles/voidgram/voidgram_registry.h
+@@ -0,0 +1,106 @@
++// This file is part of VoidGram for Desktop, a fork of AyuGram Desktop.
++// It is licensed under GPLv3 with the same exceptions as the rest of the code.
++#pragma once
++
++#include <QtCore/QObject>
++#include <QtCore/QString>
++#include <QtCore/QStringList>
++#include <QtGui/QColor>
++
++#include <rpl/event_stream.h>
++#include <rpl/producer.h>
++
++#include <memory>
++#include <optional>
++#include <unordered_map>
++
++class QNetworkAccessManager;
++class QNetworkReply;
++class QTimer;
++
++namespace VoidGram {
++
++// How a sponsor styles their own name.
++struct NameStyle {
++	// 0 regular, 1 bold, 2 italic, 3 monospace, 4 monospace italic.
++	int font = 0;
++	std::optional<QColor> color;
++	bool glow = false;
++
++	[[nodiscard]] bool plain() const {
++		return !font && !color;
++	}
++};
++
++struct Label {
++	QString kind;
++	QString text;
++};
++
++// What the owner gave a profile: names, a number, a TON balance and a rating, all only shown.
++struct Cosmetics {
++	QStringList usernames;
++	QString phone;
++	qint64 tonNano = 0;
++	QString handle;
++	int ratingLevel = 0;
++	qint64 ratingStars = 0;
++
++	[[nodiscard]] bool hasRating() const {
++		return ratingLevel > 0;
++	}
++};
++
++struct Entry {
++	qint64 id = 0;
++	qint64 documentId = 0;
++	QString title;
++	qint64 expiresAt = 0;
++	std::optional<Label> label;
++	QString frame;
++	double frameScale = 1.;
++	std::optional<NameStyle> nameStyle;
++	std::optional<Cosmetics> cosmetics;
++	bool goldBubbleFrameOff = false;
++	bool selfEdit = false;
++	bool grantsGifts = false;
++};
++
++// The VoidGram badge server's registry: badges, labels, avatar frames, name styles and the
++// profile details the owner gave out. Only a copy the server signed (Ed25519) is used, so neither
++// the network nor a changed file in the cache can hand anything out.
++class Registry final : public QObject {
++public:
++	[[nodiscard]] static Registry &instance();
++
++	void start();
++
++	[[nodiscard]] const Entry *find(qint64 bareId) const;
++	// A sponsor: a badge the owner gave that does not run out. The owner counts as one.
++	[[nodiscard]] bool isSponsor(qint64 bareId) const;
++	[[nodiscard]] qint64 ownerId() const;
++
++	// The server's answer to a change is a registry too; it is verified the same way.
++	bool accept(const QByteArray &registry, const QByteArray &signatureBase64, bool save);
++
++	[[nodiscard]] rpl::producer<> changes() const;
++
++private:
++	Registry() = default;
++
++	void refresh();
++	void gotReply();
++	void load();
++	[[nodiscard]] bool parse(const QByteArray &registry);
++
++	std::unordered_map<qint64, Entry> _entries;
++	qint64 _issuedAt = 0;
++	qint64 _ownerId = 0;
++	rpl::event_stream<> _changes;
++
++	std::unique_ptr<QNetworkAccessManager> _manager;
++	QNetworkReply *_reply = nullptr;
++	QTimer *_timer = nullptr;
++};
++
++} // namespace VoidGram
+diff --git a/Telegram/SourceFiles/voidgram/voidgram_server.cpp b/Telegram/SourceFiles/voidgram/voidgram_server.cpp
+new file mode 100644
+index 0000000..a445067
+--- /dev/null
++++ b/Telegram/SourceFiles/voidgram/voidgram_server.cpp
+@@ -0,0 +1,146 @@
++// This file is part of VoidGram for Desktop, a fork of AyuGram Desktop.
++// It is licensed under GPLv3 with the same exceptions as the rest of the code.
++#include "voidgram/voidgram_server.h"
++
++#include "apiwrap.h"
++#include "data/data_peer.h"
++#include "data/data_session.h"
++#include "data/data_user.h"
++#include "main/main_session.h"
++#include "voidgram/voidgram_registry.h"
++
++#include <QtCore/QJsonDocument>
++#include <QtCore/QUrl>
++#include <QtNetwork/QNetworkAccessManager>
++#include <QtNetwork/QNetworkReply>
++#include <QtNetwork/QNetworkRequest>
++
++namespace VoidGram {
++namespace {
++
++constexpr auto kServer = "https://badge.vinx.best";
++constexpr auto kBotUsername = "AyuZayavka_bot";
++
++[[nodiscard]] QNetworkAccessManager &Network() {
++	static auto result = QNetworkAccessManager();
++	return result;
++}
++
++// The tgWebAppData parameter of the URL's fragment, a percent-encoded query string.
++[[nodiscard]] QString ExtractInitData(const QString &url) {
++	const auto hash = url.indexOf('#');
++	if (hash < 0) {
++		return QString();
++	}
++	const auto parts = url.mid(hash + 1).split('&', Qt::SkipEmptyParts);
++	for (const auto &part : parts) {
++		if (part.startsWith(u"tgWebAppData="_q)) {
++			return QUrl::fromPercentEncoding(part.mid(13).toUtf8());
++		}
++	}
++	return QString();
++}
++
++void RequestInitData(
++		not_null<Main::Session*> session,
++		Fn<void(QString initData, QString error)> done) {
++	const auto request = [=](not_null<UserData*> bot) {
++		using Flag = MTPmessages_RequestSimpleWebView::Flag;
++		session->api().request(MTPmessages_RequestSimpleWebView(
++			MTP_flags(Flag::f_url),
++			bot->inputUser(),
++			MTP_bytes(QByteArray(kServer) + "/"),
++			MTP_string(),
++			MTP_dataJSON(MTP_bytes()),
++			MTP_string(u"tdesktop"_q)
++		)).done([=](const MTPWebViewResult &result) {
++			const auto url = QString::fromUtf8(result.data().vurl().v);
++			auto initData = ExtractInitData(url);
++			if (initData.isEmpty()) {
++				done(QString(), u"NO_INIT_DATA"_q);
++			} else {
++				done(std::move(initData), QString());
++			}
++		}).fail([=](const MTP::Error &error) {
++			done(QString(), error.type());
++		}).send();
++	};
++	const auto username = QString::fromLatin1(kBotUsername);
++	if (const auto peer = session->data().peerByUsername(username)) {
++		if (const auto user = peer->asUser()) {
++			request(user);
++			return;
++		}
++	}
++	using Flag = MTPcontacts_ResolveUsername::Flag;
++	session->api().request(MTPcontacts_ResolveUsername(
++		MTP_flags(Flag()),
++		MTP_string(username),
++		MTP_string()
++	)).done([=](const MTPcontacts_ResolvedPeer &result) {
++		result.match([&](const MTPDcontacts_resolvedPeer &data) {
++			session->data().processUsers(data.vusers());
++			session->data().processChats(data.vchats());
++			if (const auto peerId = peerFromMTP(data.vpeer())) {
++				if (const auto user = session->data().peer(peerId)->asUser()) {
++					request(user);
++					return;
++				}
++			}
++			done(QString(), u"BOT_NOT_FOUND"_q);
++		});
++	}).fail([=](const MTP::Error &error) {
++		done(QString(), error.type());
++	}).send();
++}
++
++} // namespace
++
++void Post(
++		not_null<Main::Session*> session,
++		const QString &route,
++		QJsonObject body,
++		Fn<void(QString error)> done) {
++	RequestInitData(session, [=](QString initData, QString error) mutable {
++		if (!error.isEmpty()) {
++			done(u"Telegram gave no sign-in data for the badge server (%1). Check that @%2 is not blocked."_q
++				.arg(error, QString::fromLatin1(kBotUsername)));
++			return;
++		}
++		auto copy = body;
++		copy.insert("initData", initData);
++		auto request = QNetworkRequest(QUrl(QString::fromLatin1(kServer) + "/api/" + route));
++		request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
++		request.setTransferTimeout(30 * 1000);
++		const auto reply = Network().post(
++			request,
++			QJsonDocument(copy).toJson(QJsonDocument::Compact));
++		QObject::connect(reply, &QNetworkReply::finished, [=] {
++			reply->deleteLater();
++			const auto status = reply->attribute(
++				QNetworkRequest::HttpStatusCodeAttribute).toInt();
++			const auto json = QJsonDocument::fromJson(reply->readAll()).object();
++			if (status == 200
++				&& json.contains("registry")
++				&& json.contains("signature")) {
++				if (Registry::instance().accept(
++						json.value("registry").toString().toUtf8(),
++						json.value("signature").toString().toUtf8(),
++						true)) {
++					done(QString());
++				} else {
++					done(u"The badge server's answer failed the signature check."_q);
++				}
++				return;
++			}
++			const auto text = json.value("error").toString();
++			done(text.isEmpty()
++				? (status
++					? u"The badge server answered %1."_q.arg(status)
++					: reply->errorString())
++				: text);
++		});
++	});
++}
++
++} // namespace VoidGram
+diff --git a/Telegram/SourceFiles/voidgram/voidgram_server.h b/Telegram/SourceFiles/voidgram/voidgram_server.h
+new file mode 100644
+index 0000000..83c5376
+--- /dev/null
++++ b/Telegram/SourceFiles/voidgram/voidgram_server.h
+@@ -0,0 +1,26 @@
++// This file is part of VoidGram for Desktop, a fork of AyuGram Desktop.
++// It is licensed under GPLv3 with the same exceptions as the rest of the code.
++#pragma once
++
++#include "base/basic_types.h"
++
++#include <QtCore/QJsonObject>
++#include <QtCore/QString>
++
++namespace Main {
++class Session;
++} // namespace Main
++
++namespace VoidGram {
++
++// Sends a change to the badge server (POST /api/<route>). The request proves who sent it with
++// Mini App data Telegram signs for the server's bot, so the client keeps no keys. The registry the
++// server answers with is signed; it is checked and taken into use before `done` is called with an
++// empty text, or with a message to show.
++void Post(
++	not_null<Main::Session*> session,
++	const QString &route,
++	QJsonObject body,
++	Fn<void(QString error)> done);
++
++} // namespace VoidGram

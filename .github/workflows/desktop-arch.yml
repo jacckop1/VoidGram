@@ -1,0 +1,72 @@
+name: VoidGram Desktop (Arch Linux)
+
+# Builds AyuGram Desktop with the patches in desktop/patches in an Arch container and keeps the
+# installed tree as an artifact. Arch is a rolling release, so run the result on an up to date
+# system: it links against the libraries the container had when it built.
+on:
+  push:
+    branches: [main]
+    paths:
+      - desktop/**
+      - .github/workflows/desktop-arch.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-arch
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    container:
+      image: archlinux:base-devel
+    env:
+      TDESKTOP_API_ID: ${{ secrets.TELEGRAM_API_ID }}
+      TDESKTOP_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
+      WORK_DIR: /work
+      BUILD_TYPE: None
+      CFLAGS: -O2 -pipe
+      CXXFLAGS: -O2 -pipe
+      CCACHE_DIR: /work/ccache
+      CCACHE_MAXSIZE: 5G
+    steps:
+      - name: Install build dependencies
+        run: |
+          pacman -Syu --noconfirm --needed git cmake ninja python gperf curl tar zstd ccache \
+            abseil-cpp ada cmark-gfm ffmpeg glib2 glib2-devel gobject-introspection hunspell kcoreaddons \
+            libavif libfido2 libheif libjpeg-turbo libjxl libpipewire libsrtp libtg_owt libvpx libxcb \
+            libxcomposite libxdamage libxext libxfixes libxkbcommon libxrandr libxtst lz4 microsoft-gsl \
+            minizip openal openh264 openssl opus pipewire qt6-base qt6-declarative qt6-imageformats \
+            qt6-shadertools qt6-svg qt6-wayland range-v3 rnnoise tl-expected tlottie vulkan-headers xxhash zlib boost
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Check the credentials are set
+        run: |
+          test -n "$TDESKTOP_API_ID" && test -n "$TDESKTOP_API_HASH" \
+            || { echo "Set TELEGRAM_API_ID and TELEGRAM_API_HASH in the repository Actions secrets."; exit 1; }
+
+      - name: Restore the compiler cache
+        uses: actions/cache@v4
+        with:
+          path: /work/ccache
+          key: desktop-ccache-${{ hashFiles('desktop/VERSION', 'desktop/patches/*.patch') }}
+          restore-keys: desktop-ccache-
+
+      - name: Build
+        run: |
+          mkdir -p "$WORK_DIR"
+          JOBS="$(nproc)" desktop/build-arch.sh
+
+      - name: Pack the installed tree
+        run: tar --zstd -cf voidgram-desktop-linux-x86_64.tar.zst -C "$WORK_DIR/install" .
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: voidgram-desktop-linux-x86_64
+          path: voidgram-desktop-linux-x86_64.tar.zst
+          if-no-files-found: error
