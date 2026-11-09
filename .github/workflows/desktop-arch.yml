@@ -60,7 +60,7 @@ jobs:
       - name: Build
         run: |
           mkdir -p "$WORK_DIR"
-          JOBS="$(nproc)" desktop/build-arch.sh
+          JOBS="$(nproc)" bash desktop/build-arch.sh
 
       - name: Pack the installed tree
         run: tar --zstd -cf voidgram-desktop-linux-x86_64.tar.zst -C "$WORK_DIR/install" .
