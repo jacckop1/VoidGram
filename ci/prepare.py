@@ -57,6 +57,9 @@ patches = [
     root / "patches" / "voidgram-classic-media-bubbles.patch",
     root / "patches" / "voidgram-bubble-skins.patch",
     root / "patches" / "voidgram-video-download-background.patch",
+    root / "patches" / "voidgram-welcome-wallpapers-glow.patch",
+    root / "patches" / "voidgram-swipe-actions.patch",
+    root / "patches" / "voidgram-avatar-frames-rating.patch",
 ]
 for patch in patches:
     subprocess.run(["git", "apply", "--recount", "--check", str(patch)], cwd=source, check=True)
@@ -152,6 +155,10 @@ if eblan_src.is_file():
 # skin's pattern tile, loaded from the bundle by name. Rebuilt by assets/bubbles/*.py.
 for bubble_asset in sorted((root / "assets" / "bubbles").glob("VoidGramBubble*@3x.png")):
     shutil.copy2(bubble_asset, source / "submodules" / "TelegramUI" / "Resources" / bubble_asset.name)
+# The first screen's logo and the wallpapers offered in Themes, colours & badges, by name too.
+shutil.copy2(root / "assets" / "welcome" / "VoidGramWelcomeLogo@3x.png", source / "submodules" / "TelegramUI" / "Resources" / "VoidGramWelcomeLogo@3x.png")
+for wallpaper in sorted((root / "assets" / "wallpapers").glob("VoidGramWallpaper*.jpg")):
+    shutil.copy2(wallpaper, source / "submodules" / "TelegramUI" / "Resources" / wallpaper.name)
 
 missing = missing_port_sources(source)
 if missing:

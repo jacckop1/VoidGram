@@ -1,0 +1,718 @@
+diff --git a/submodules/AuthorizationUI/Sources/AuthorizationSequenceSplashController.swift b/submodules/AuthorizationUI/Sources/AuthorizationSequenceSplashController.swift
+index ca4767b5..55377cf6 100644
+--- a/submodules/AuthorizationUI/Sources/AuthorizationSequenceSplashController.swift
++++ b/submodules/AuthorizationUI/Sources/AuthorizationSequenceSplashController.swift
+@@ -3,12 +3,8 @@ import UIKit
+ import Display
+ import AsyncDisplayKit
+ import TelegramCore
+-import SSignalKit
+ import SwiftSignalKit
+ import TelegramPresentationData
+-import LegacyComponents
+-import SolidRoundedButtonNode
+-import RMIntro
+ 
+ public final class AuthorizationSequenceSplashController: ViewController {
+     private var controllerNode: AuthorizationSequenceSplashControllerNode {
+@@ -19,17 +15,13 @@ public final class AuthorizationSequenceSplashController: ViewController {
+     private let account: UnauthorizedAccount
+     private let theme: PresentationTheme
+     
+-    private let controller: RMIntroViewController
+-    
+-    private var validLayout: ContainerViewLayout?
++    private let welcomeView = AyuWelcomeView()
+     
+     var nextPressed: ((PresentationStrings?) -> Void)?
+     
+     private let suggestedLocalization = Promise<SuggestedLocalizationInfo?>()
+     private let activateLocalizationDisposable = MetaDisposable()
+     
+-    private let startButton: SolidRoundedButtonNode
+-    
+     init(accountManager: AccountManager<TelegramAccountManagerTypes>, account: UnauthorizedAccount, theme: PresentationTheme) {
+         self.accountManager = accountManager
+         self.account = account
+@@ -37,43 +29,6 @@ public final class AuthorizationSequenceSplashController: ViewController {
+         
+         self.suggestedLocalization.set(.single(nil)
+         |> then(TelegramEngineUnauthorized(account: self.account).localization.currentlySuggestedLocalization(extractKeys: ["Login.ContinueWithLocalization"])))
+-        let suggestedLocalization = self.suggestedLocalization
+-        
+-        let localizationSignal = SSignal(generator: { subscriber in
+-            let disposable = suggestedLocalization.get().start(next: { localization in
+-                guard let localization = localization else {
+-                    return
+-                }
+-                
+-                var continueWithLanguageString: String = "Continue"
+-                for entry in localization.extractedEntries {
+-                    switch entry {
+-                        case let .string(key, value):
+-                            if key == "Login.ContinueWithLocalization" {
+-                                continueWithLanguageString = value
+-                            }
+-                        default:
+-                            break
+-                    }
+-                }
+-                
+-                if let available = localization.availableLocalizations.first, available.languageCode != "en" {
+-                    let value = TGSuggestedLocalization(info: TGAvailableLocalization(title: available.title, localizedTitle: available.localizedTitle, code: available.languageCode), continueWithLanguageString: continueWithLanguageString, chooseLanguageString: "Choose Language", chooseLanguageOtherString: "Choose Language", englishLanguageNameString: "English")
+-                    subscriber.putNext(value)
+-                }
+-            }, completed: {
+-                subscriber.putCompletion()
+-            })
+-            
+-            return SBlockDisposable(block: {
+-                disposable.dispose()
+-            })
+-        })
+-        
+-        self.controller = RMIntroViewController(backgroundColor: theme.list.plainBackgroundColor, primaryColor: theme.list.itemPrimaryTextColor, buttonColor: theme.intro.startButtonColor, accentColor: theme.list.itemAccentColor, regularDotColor: theme.intro.dotColor, highlightedDotColor: theme.list.itemAccentColor, suggestedLocalizationSignal: localizationSignal)
+-        
+-        self.startButton = SolidRoundedButtonNode(title: "Start Messaging", theme: SolidRoundedButtonTheme(theme: theme), glass: false, height: 50.0, cornerRadius: 50.0 * 0.5, isShimmering: true)
+-        self.startButton.accessibilityIdentifier = "Auth.Welcome.StartButton"
+ 
+         super.init(navigationBarPresentationData: nil)
+         
+@@ -81,24 +36,18 @@ public final class AuthorizationSequenceSplashController: ViewController {
+         
+         self.supportedOrientations = ViewControllerSupportedOrientations(regularSize: .all, compactSize: .portrait)
+         
+-        self.statusBar.statusBarStyle = theme.intro.statusBarStyle.style
++        self.statusBar.statusBarStyle = .White
+         
+-        self.controller.startMessaging = { [weak self] in
+-            self?.activateLocalization("en")
+-        }
+-        self.controller.startMessagingInAlternativeLanguage = { [weak self] code in
+-            if let code = code {
+-                self?.activateLocalization(code)
++        // The app's language when Telegram has it, without the old intro's second button.
++        self.welcomeView.pressed = { [weak self] in
++            guard let self else {
++                return
+             }
+-        }
+-        
+-        self.startButton.pressed = { [weak self] in
+-            self?.activateLocalization("en")
+-        }
+-        
+-        self.controller.createStartButton = { [weak self] width in
+-            let _ = self?.startButton.updateLayout(width: width, transition: .immediate)
+-            return self?.startButton.view
++            let _ = (self.suggestedLocalization.get()
++            |> take(1)
++            |> deliverOnMainQueue).start(next: { [weak self] localization in
++                self?.activateLocalization(localization?.availableLocalizations.first?.languageCode ?? "en")
++            })
+         }
+     }
+     
+@@ -112,101 +61,42 @@ public final class AuthorizationSequenceSplashController: ViewController {
+     
+     public override func loadDisplayNode() {
+         self.displayNode = AuthorizationSequenceSplashControllerNode(theme: self.theme)
++        self.displayNode.view.addSubview(self.welcomeView)
+         self.displayNodeDidLoad()
+     }
+     
+     func animateIn() {
+-        self.controller.animateIn()
++        self.welcomeView.animateIn()
+     }
+     
+-    // The intro view may sit in a band (iPhone Duo's side strip, see introFrame(layout:)); these frames are
+-    // handed to the next screen's node, which fills the window, so they are offset out of the intro view.
+     var buttonFrame: CGRect {
+-        return self.startButton.frame.offsetBy(dx: self.controller.defaultFrame.minX, dy: self.controller.defaultFrame.minY)
++        return self.welcomeView.buttonFrame
+     }
+     
+     var buttonTitle: String {
+-        return self.startButton.title ?? ""
++        return self.welcomeView.buttonTitle
+     }
+     
+     var animationSnapshot: UIView? {
+-        let snapshotView: UIView? = self.controller.createAnimationSnapshot()
+-        guard let snapshot = snapshotView else {
+-            return nil
+-        }
+-        snapshot.frame = snapshot.frame.offsetBy(dx: self.controller.defaultFrame.minX, dy: self.controller.defaultFrame.minY)
+-        return snapshot
++        return self.welcomeView.logoSnapshot
+     }
+     
+     var textSnaphot: UIView? {
+-        let snapshotView: UIView? = self.controller.createTextSnapshot()
+-        guard let snapshot = snapshotView else {
+-            return nil
+-        }
+-        snapshot.frame = snapshot.frame.offsetBy(dx: self.controller.defaultFrame.minX, dy: self.controller.defaultFrame.minY)
+-        return snapshot
+-    }
+-    
+-    // iPhone Duo: beside a side strip the intro (logo, pages, Start Messaging) keeps to the band between the
+-    // side insets. With equal insets (every other phone) it fills the window as before.
+-    private func introFrame(layout: ContainerViewLayout) -> CGRect {
+-        if layout.safeInsets.left != layout.safeInsets.right {
+-            return CGRect(origin: CGPoint(x: layout.safeInsets.left, y: 0.0), size: CGSize(width: layout.size.width - layout.safeInsets.left - layout.safeInsets.right, height: layout.size.height))
+-        }
+-        return CGRect(origin: CGPoint(), size: layout.size)
+-    }
+-    
+-    private func addControllerIfNeeded() {
+-        if !self.controller.isViewLoaded || self.controller.view.superview == nil {
+-            self.displayNode.view.addSubview(self.controller.view)
+-            if let layout = self.validLayout {
+-                controller.view.frame = self.introFrame(layout: layout)
+-            }
+-            self.controller.viewDidAppear(false)
+-        }
+-    }
+-    
+-    public override func viewWillAppear(_ animated: Bool) {
+-        super.viewWillAppear(animated)
+-        self.addControllerIfNeeded()
+-        self.controller.viewWillAppear(false)
+-    }
+-    
+-    public override func viewDidAppear(_ animated: Bool) {
+-        super.viewDidAppear(animated)
+-        
+-        controller.viewDidAppear(animated)
+-    }
+-    
+-    public override func viewWillDisappear(_ animated: Bool) {
+-        super.viewWillDisappear(animated)
+-        
+-        controller.viewWillDisappear(animated)
+-    }
+-    
+-    public override func viewDidDisappear(_ animated: Bool) {
+-        super.viewDidDisappear(animated)
+-        
+-        controller.viewDidDisappear(animated)
++        return self.welcomeView.textSnapshot
+     }
+     
+     public override func containerLayoutUpdated(_ layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
+         super.containerLayoutUpdated(layout, transition: transition)
+         
+-        self.validLayout = layout
+-        let controllerFrame = self.introFrame(layout: layout)
+-        self.controller.defaultFrame = controllerFrame
+-        
+         self.controllerNode.containerLayoutUpdated(layout, navigationBarHeight: 0.0, transition: transition)
+         
+-        self.addControllerIfNeeded()
+-        if case .immediate = transition {
+-            self.controller.view.frame = controllerFrame
+-        } else {
+-            UIView.animate(withDuration: 0.3, animations: {
+-                self.controller.view.frame = controllerFrame
+-            })
++        // iPhone Duo: beside a side strip the content keeps to the band between the side insets.
++        var band = CGRect(origin: CGPoint(), size: layout.size)
++        if layout.safeInsets.left != layout.safeInsets.right {
++            band = CGRect(x: layout.safeInsets.left, y: 0.0, width: layout.size.width - layout.safeInsets.left - layout.safeInsets.right, height: layout.size.height)
+         }
++        self.welcomeView.frame = CGRect(origin: CGPoint(), size: layout.size)
++        self.welcomeView.update(size: layout.size, band: band, bottomInset: layout.intrinsicInsets.bottom)
+     }
+     
+     private func activateLocalization(_ code: String) {
+@@ -238,8 +128,7 @@ public final class AuthorizationSequenceSplashController: ViewController {
+                 return
+             }
+             
+-            strongSelf.controller.isEnabled = false
+-            strongSelf.startButton.alpha = 0.6
++            strongSelf.welcomeView.isEnabled = false
+             let accountManager = strongSelf.accountManager
+             
+             strongSelf.activateLocalizationDisposable.set(TelegramEngineUnauthorized(account: strongSelf.account).localization.downloadAndApplyLocalization(accountManager: accountManager, languageCode: code).start(completed: {
+@@ -259,8 +148,7 @@ public final class AuthorizationSequenceSplashController: ViewController {
+                     return stringsValue
+                 }
+                 |> deliverOnMainQueue).start(next: { strings in
+-                    self?.controller.isEnabled = true
+-                    self?.startButton.alpha = 1.0
++                    self?.welcomeView.isEnabled = true
+                     self?.pressNext(strings: strings)
+                 })
+             }))
+diff --git a/submodules/AuthorizationUI/Sources/AyuWelcomeView.swift b/submodules/AuthorizationUI/Sources/AyuWelcomeView.swift
+new file mode 100644
+index 00000000..11a6fcbf
+--- /dev/null
++++ b/submodules/AuthorizationUI/Sources/AyuWelcomeView.swift
+@@ -0,0 +1,158 @@
++import Foundation
++import UIKit
++import Display
++
++/// VoidGram's first screen: a lit logo on black and a white button.
++final class AyuWelcomeView: UIView {
++    private final class StartButton: UIButton {
++        override var isHighlighted: Bool {
++            didSet {
++                self.alpha = self.isHighlighted ? 0.7 : 1.0
++            }
++        }
++    }
++
++    private let lightLayer = CAGradientLayer()
++    private let logoLightLayer = CAGradientLayer()
++    private let logoView = UIImageView()
++    private let textContainer = UIView()
++    private let subtitleLabel = UILabel()
++    private let titleLabel = UILabel()
++    private let button = StartButton(type: .custom)
++
++    var pressed: (() -> Void)?
++
++    var buttonTitle: String {
++        return self.button.title(for: .normal) ?? ""
++    }
++
++    var buttonFrame: CGRect {
++        return self.button.frame
++    }
++
++    var isEnabled: Bool = true {
++        didSet {
++            self.button.isEnabled = self.isEnabled
++            self.button.alpha = self.isEnabled ? 1.0 : 0.6
++        }
++    }
++
++    override init(frame: CGRect) {
++        super.init(frame: frame)
++
++        self.backgroundColor = .black
++        let ru = Locale.preferredLanguages.first?.hasPrefix("ru") ?? false
++
++        for layer in [self.lightLayer, self.logoLightLayer] {
++            layer.type = .radial
++            layer.startPoint = CGPoint(x: 0.5, y: 0.5)
++            layer.endPoint = CGPoint(x: 1.0, y: 1.0)
++            self.layer.addSublayer(layer)
++        }
++        self.lightLayer.colors = [UIColor(white: 1.0, alpha: 0.26).cgColor, UIColor(white: 1.0, alpha: 0.08).cgColor, UIColor(white: 1.0, alpha: 0.0).cgColor]
++        self.lightLayer.locations = [0.0, 0.5, 1.0]
++        self.logoLightLayer.colors = [UIColor(white: 1.0, alpha: 0.42).cgColor, UIColor(white: 1.0, alpha: 0.0).cgColor]
++
++        self.logoView.image = Bundle.main.path(forResource: "VoidGramWelcomeLogo@3x", ofType: "png").flatMap(UIImage.init(contentsOfFile:)).flatMap { image -> UIImage? in
++            return image.cgImage.map { UIImage(cgImage: $0, scale: 3.0, orientation: .up) }
++        }
++        self.logoView.contentMode = .scaleAspectFit
++        // The logo's own shape lights up, not a box around it.
++        self.logoView.layer.shadowColor = UIColor.white.cgColor
++        self.logoView.layer.shadowOffset = CGSize()
++        self.logoView.layer.shadowRadius = 22.0
++        self.logoView.layer.shadowOpacity = 0.9
++        self.addSubview(self.logoView)
++
++        self.subtitleLabel.numberOfLines = 0
++        self.subtitleLabel.textAlignment = .center
++        self.subtitleLabel.textColor = .white
++        self.subtitleLabel.font = Font.regular(16.0)
++        self.subtitleLabel.text = ru ? "Добро пожаловать в VoidGram!\nБыстрый и неофициальный клиент" : "Welcome to VoidGram!\nA fast unofficial client"
++        self.textContainer.addSubview(self.subtitleLabel)
++
++        self.titleLabel.textAlignment = .center
++        self.titleLabel.textColor = .white
++        self.titleLabel.font = Font.medium(32.0)
++        self.titleLabel.text = "VoidGram"
++        self.textContainer.addSubview(self.titleLabel)
++        self.addSubview(self.textContainer)
++
++        self.button.backgroundColor = .white
++        self.button.setTitleColor(.black, for: .normal)
++        self.button.titleLabel?.font = Font.semibold(17.0)
++        self.button.setTitle(ru ? "Начать общение" : "Start Messaging", for: .normal)
++        self.button.accessibilityIdentifier = "Auth.Welcome.StartButton"
++        self.button.layer.cornerRadius = 25.0
++        self.button.layer.shadowColor = UIColor.white.cgColor
++        self.button.layer.shadowOffset = CGSize()
++        self.button.layer.shadowRadius = 18.0
++        self.button.layer.shadowOpacity = 0.35
++        self.button.addTarget(self, action: #selector(self.buttonPressed), for: .touchUpInside)
++        self.addSubview(self.button)
++
++        let breathe = CABasicAnimation(keyPath: "shadowRadius")
++        breathe.fromValue = 16.0 as NSNumber
++        breathe.toValue = 28.0 as NSNumber
++        breathe.duration = 2.4
++        breathe.autoreverses = true
++        breathe.repeatCount = .infinity
++        breathe.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
++        breathe.isRemovedOnCompletion = false
++        self.logoView.layer.add(breathe, forKey: "breathe")
++    }
++
++    required init?(coder: NSCoder) {
++        fatalError("init(coder:) has not been implemented")
++    }
++
++    @objc private func buttonPressed() {
++        self.pressed?()
++    }
++
++    /// Lays out inside `band`, the part of the view free of side insets.
++    func update(size: CGSize, band: CGRect, bottomInset: CGFloat) {
++        CATransaction.begin()
++        CATransaction.setDisableActions(true)
++        defer { CATransaction.commit() }
++
++        let logoSize = min(160.0, band.width * 0.42)
++        let logoFrame = CGRect(x: band.midX - logoSize / 2.0, y: max(90.0, floor(size.height * 0.19)), width: logoSize, height: logoSize)
++        self.logoView.frame = logoFrame
++
++        let logoLightSize = logoSize * 2.6
++        self.logoLightLayer.frame = CGRect(x: logoFrame.midX - logoLightSize / 2.0, y: logoFrame.midY - logoLightSize / 2.0, width: logoLightSize, height: logoLightSize)
++
++        let lightSize = max(size.width, size.height) * 0.95
++        self.lightLayer.frame = CGRect(x: band.midX - lightSize / 2.0, y: size.height * 0.62 - lightSize / 2.0, width: lightSize, height: lightSize)
++
++        let textWidth = band.width - 48.0
++        let subtitleSize = self.subtitleLabel.sizeThatFits(CGSize(width: textWidth, height: 200.0))
++        let titleSize = self.titleLabel.sizeThatFits(CGSize(width: textWidth, height: 80.0))
++        let spacing: CGFloat = 26.0
++        self.textContainer.frame = CGRect(x: band.minX + 24.0, y: logoFrame.maxY + 34.0, width: textWidth, height: subtitleSize.height + spacing + titleSize.height)
++        self.subtitleLabel.frame = CGRect(x: 0.0, y: 0.0, width: textWidth, height: subtitleSize.height)
++        self.titleLabel.frame = CGRect(x: 0.0, y: subtitleSize.height + spacing, width: textWidth, height: titleSize.height)
++
++        self.button.frame = CGRect(x: band.minX + 21.0, y: size.height - max(bottomInset, 16.0) - 16.0 - 50.0, width: band.width - 42.0, height: 50.0)
++    }
++
++    func animateIn() {
++        self.logoView.layer.animateScale(from: 0.82, to: 1.0, duration: 0.5, timingFunction: kCAMediaTimingFunctionSpring)
++        for layer in [self.logoView.layer, self.textContainer.layer, self.button.layer, self.lightLayer, self.logoLightLayer] {
++            layer.animateAlpha(from: 0.0, to: 1.0, duration: 0.35)
++        }
++    }
++
++    var logoSnapshot: UIView? {
++        let snapshot = self.logoView.snapshotView(afterScreenUpdates: false)
++        snapshot?.frame = self.logoView.frame
++        return snapshot
++    }
++
++    var textSnapshot: UIView? {
++        let snapshot = self.textContainer.snapshotView(afterScreenUpdates: false)
++        snapshot?.frame = self.textContainer.frame
++        return snapshot
++    }
++}
+diff --git a/submodules/ChatMessageBackground/Sources/ChatMessageBackground.swift b/submodules/ChatMessageBackground/Sources/ChatMessageBackground.swift
+index 50096f2c..997250dc 100644
+--- a/submodules/ChatMessageBackground/Sources/ChatMessageBackground.swift
++++ b/submodules/ChatMessageBackground/Sources/ChatMessageBackground.swift
+@@ -414,8 +414,11 @@ public class ChatMessageBackground: ASDisplayNode {
+         guard self.isNodeLoaded, let skin = self.ayuSkin, let shape = self.ayuShapeImage, let imageView = self.imageView else {
+             self.ayuSkinLayers?.removeFromSuperlayer()
+             self.ayuSkinLayers = nil
++            self.outlineImageNode.isHidden = false
+             return
+         }
++        // The theme's outline would show as a second line around the skin.
++        self.outlineImageNode.isHidden = true
+         let layers = self.ayuSkinLayers ?? AyuBubbleSkinLayers()
+         if self.ayuSkinLayers == nil {
+             self.ayuSkinLayers = layers
+diff --git a/submodules/Components/ReactionButtonListComponent/Sources/ReactionButtonListComponent.swift b/submodules/Components/ReactionButtonListComponent/Sources/ReactionButtonListComponent.swift
+index 91ff4cff..5e622fdf 100644
+--- a/submodules/Components/ReactionButtonListComponent/Sources/ReactionButtonListComponent.swift
++++ b/submodules/Components/ReactionButtonListComponent/Sources/ReactionButtonListComponent.swift
+@@ -21,6 +21,34 @@ private let tagImage: UIImage? = {
+     return generateTintedImage(image: UIImage(bundleImageName: "Chat/Message/ReactionTagBackground"), color: .white)?.stretchableImage(withLeftCapWidth: 8, topCapHeight: 15)
+ }()
+ 
++/// The light behind a reaction: its usual colour for the common emoji, otherwise the bubble's.
++private func ayuReactionGlowColor(_ reaction: MessageReaction.Reaction, fallback: UIColor) -> UIColor {
++    switch reaction {
++    case let .builtin(value):
++        let emoji = value.replacingOccurrences(of: "\u{fe0f}", with: "")
++        switch emoji {
++        case "❤", "💋", "🍓", "💔", "🌹", "🤬", "😡":
++            return UIColor(rgb: 0xFF2D3B)
++        case "🔥", "🎃", "🍾", "😁":
++            return UIColor(rgb: 0xFF8A1F)
++        case "👍", "👎", "⚡", "🌟", "🏆", "🤩", "🎉", "😂", "🤣", "💯", "🍌":
++            return UIColor(rgb: 0xFFCC33)
++        case "💘", "🥰", "😍", "😘", "💅", "🦄":
++            return UIColor(rgb: 0xFF4FA3)
++        case "🐳", "🥶", "🌚", "👻", "🕊":
++            return UIColor(rgb: 0x4FB7FF)
++        case "💩", "🤔", "🙏", "🤝", "👀":
++            return UIColor(rgb: 0xC9A37A)
++        default:
++            return fallback
++        }
++    case .stars:
++        return UIColor(rgb: 0xFFBE27)
++    case .custom:
++        return fallback
++    }
++}
++
+ private final class StarsButtonEffectLayer: SimpleLayer {
+     let emitterLayer = CAEmitterLayer()
+     
+@@ -983,6 +1011,7 @@ public final class ReactionButtonAsyncNode: ContextControllerSourceView {
+     public let containerView: ContextExtractedContentContainingView
+     private let buttonNode: ContainerButtonNode
+     private var starsEffectLayer: StarsButtonEffectLayer?
++    private var ayuGlowLayer: CAGradientLayer?
+     public var iconView: ReactionIconView?
+     private var avatarsView: AnimatedAvatarSetView?
+     
+@@ -1224,6 +1253,33 @@ public final class ReactionButtonAsyncNode: ContextControllerSourceView {
+         
+         self.buttonNode.update(layout: layout.backgroundLayout)
+         
++        // VoidGram "Glowing reactions": a soft light in the reaction's colour behind its icon.
++        if AyuAppearancePlus.glowingReactions, !layout.spec.component.isTag {
++            let glowLayer: CAGradientLayer
++            if let current = self.ayuGlowLayer {
++                glowLayer = current
++            } else {
++                glowLayer = CAGradientLayer()
++                glowLayer.type = .radial
++                glowLayer.startPoint = CGPoint(x: 0.5, y: 0.5)
++                glowLayer.endPoint = CGPoint(x: 1.0, y: 1.0)
++                glowLayer.locations = [0.0, 0.45, 1.0]
++                self.ayuGlowLayer = glowLayer
++                if let iconView = self.iconView {
++                    self.buttonNode.layer.insertSublayer(glowLayer, below: iconView.layer)
++                } else {
++                    self.buttonNode.layer.insertSublayer(glowLayer, at: 0)
++                }
++            }
++            let color = ayuReactionGlowColor(layout.spec.component.reaction.value, fallback: UIColor(argb: layout.spec.component.colors.deselectedForeground))
++            glowLayer.colors = [color.withAlphaComponent(0.85).cgColor, color.withAlphaComponent(0.4).cgColor, color.withAlphaComponent(0.0).cgColor]
++            let glowSize = layout.imageFrame.width * 3.0
++            animation.animator.updateFrame(layer: glowLayer, frame: CGRect(x: layout.imageFrame.midX - glowSize / 2.0, y: layout.imageFrame.midY - glowSize / 2.0, width: glowSize, height: glowSize), completion: nil)
++        } else if let glowLayer = self.ayuGlowLayer {
++            self.ayuGlowLayer = nil
++            glowLayer.removeFromSuperlayer()
++        }
++        
+         if let iconView = self.iconView {
+             animation.animator.updateFrame(layer: iconView.layer, frame: layout.imageFrame, completion: nil)
+             
+diff --git a/submodules/Display/Source/AyuAppearancePlus.swift b/submodules/Display/Source/AyuAppearancePlus.swift
+index 037ede6e..80088cf5 100644
+--- a/submodules/Display/Source/AyuAppearancePlus.swift
++++ b/submodules/Display/Source/AyuAppearancePlus.swift
+@@ -22,6 +22,8 @@ public enum AyuAppearancePlus {
+     private static let slowMotionKey = "ayu.appearance.slowMotion"
+     private static let noGlassKey = "ayu.appearance.noGlass"
+     private static let blurGlassKey = "ayu.appearance.blurGlass"
++    private static let glowingReactionsKey = "ayu.appearance.glowingReactions"
++    private static let swipeMenuKey = "ayu.appearance.swipeMenu"
+ 
+     /// Slow-Motion choices for every animation in the client.
+     public static let slowMotionSteps: [Double] = [1.0, 2.0, 3.0, 5.0, 10.0]
+@@ -81,6 +83,18 @@ public enum AyuAppearancePlus {
+         set { set(newValue.rawValue, forKey: glassStyleKey) }
+     }
+ 
++    /// A soft light in the reaction's colour behind every reaction. Drawn by this app alone.
++    public static var glowingReactions: Bool {
++        get { return UserDefaults.standard.bool(forKey: glowingReactionsKey) }
++        set { set(newValue, forKey: glowingReactionsKey) }
++    }
++
++    /// Swiping a message shows its actions, chosen by moving the finger up or down. On by default.
++    public static var swipeMenu: Bool {
++        get { return UserDefaults.standard.object(forKey: swipeMenuKey) as? Bool ?? true }
++        set { set(newValue, forKey: swipeMenuKey) }
++    }
++
+     /// The pre-Liquid-Glass look: a full-width opaque tab bar and Telegram's flat glass.
+     public static var classicDesign: Bool {
+         get { return UserDefaults.standard.bool(forKey: classicDesignKey) }
+@@ -101,7 +115,7 @@ public enum AyuAppearancePlus {
+         _ = AyuAppearancePlus.launchClassicDesign
+         _ = AyuAppearancePlus.launchNoGlass
+         _ = AyuAppearancePlus.launchBlurGlass
+-        for key in [hideContactsKey, hideCallsKey, hideTabTitlesKey, glassStyleKey, classicDesignKey, slowMotionKey, noGlassKey, blurGlassKey] {
++        for key in [hideContactsKey, hideCallsKey, hideTabTitlesKey, glassStyleKey, classicDesignKey, slowMotionKey, noGlassKey, blurGlassKey, glowingReactionsKey, swipeMenuKey] {
+             UserDefaults.standard.removeObject(forKey: key)
+         }
+         ayuSetAnimationSlowMotionFactor(1.0)
+diff --git a/submodules/SettingsUI/Sources/AyuAppearancePlusController.swift b/submodules/SettingsUI/Sources/AyuAppearancePlusController.swift
+index 4e7dd808..3e2896f5 100644
+--- a/submodules/SettingsUI/Sources/AyuAppearancePlusController.swift
++++ b/submodules/SettingsUI/Sources/AyuAppearancePlusController.swift
+@@ -20,6 +20,8 @@ private enum AyuAppearancePlusRow: Int32 {
+     case noGlass = 22
+     case blurGlass = 23
+     case slowMotion = 25
++    case glowingReactions = 26
++    case swipeMenu = 27
+     case relaunchInfo = 30
+     case settingsRows = 35
+     case reset = 41
+@@ -106,6 +108,8 @@ func ayuAppearancePlusController(context: AccountContext) -> ViewController {
+         case .hideTitles: AyuAppearancePlus.hideTabTitles = value
+         case .telegramGlass: AyuAppearancePlus.glassStyle = value ? .telegram : .system
+         case .classicDesign: AyuAppearancePlus.classicDesign = value
++        case .glowingReactions: AyuAppearancePlus.glowingReactions = value
++        case .swipeMenu: AyuAppearancePlus.swipeMenu = value
+         case .noGlass:
+             AyuAppearancePlus.noGlass = value
+             if value {
+@@ -142,7 +146,9 @@ func ayuAppearancePlusController(context: AccountContext) -> ViewController {
+             .toggle(3, AyuAppearancePlusRow.classicDesign.rawValue, symbol("clock.arrow.circlepath", 0xFF2D55), ru ? "Старый дизайн Telegram" : "Classic Telegram design", ru ? "Как Telegram до Liquid Glass: полная нижняя панель и плоские панели без стекла" : "Telegram before Liquid Glass: full-width tab bar and flat panels without glass", AyuAppearancePlus.classicDesign),
+             .toggle(3, AyuAppearancePlusRow.noGlass.rawValue, symbol("square.slash", 0x8E8E93), ru ? "Без стекла" : "No glass", ru ? "Плоские панели везде: папки, чаты, настройки, кнопки" : "Flat panels everywhere: folders, chats, settings, buttons", AyuAppearancePlus.noGlass),
+             .toggle(3, AyuAppearancePlusRow.blurGlass.rawValue, symbol("aqi.medium", 0x32ADE6), ru ? "Размытие вместо стекла" : "Blur instead of glass", ru ? "Панели и кнопки размывают то, что под ними, без эффекта стекла" : "Panels and buttons blur what is under them, without the glass effect", AyuAppearancePlus.blurGlass),
+-            .link(3, AyuAppearancePlusRow.slowMotion.rawValue, symbol("tortoise.fill", 0x34C759), ru ? "Slow-Motion анимаций" : "Animation slow motion", AyuAppearancePlus.slowMotionFactor > 1.0 ? String(format: "%.0f×", AyuAppearancePlus.slowMotionFactor) : (ru ? "выкл." : "off"))
++            .link(3, AyuAppearancePlusRow.slowMotion.rawValue, symbol("tortoise.fill", 0x34C759), ru ? "Slow-Motion анимаций" : "Animation slow motion", AyuAppearancePlus.slowMotionFactor > 1.0 ? String(format: "%.0f×", AyuAppearancePlus.slowMotionFactor) : (ru ? "выкл." : "off")),
++            .toggle(3, AyuAppearancePlusRow.glowingReactions.rawValue, symbol("heart.fill", 0xFF3B30), ru ? "Светящиеся реакции" : "Glowing reactions", ru ? "Свет в цвете реакции; видно в вашем приложении" : "A light in the reaction's colour, in your app", AyuAppearancePlus.glowingReactions),
++            .toggle(3, AyuAppearancePlusRow.swipeMenu.rawValue, symbol("hand.draw.fill", 0x007AFF), ru ? "Действия по свайпу" : "Swipe actions", ru ? "Свайп влево, затем вверх или вниз: переслать, ответить, копировать, сохранить" : "Swipe left, then up or down: forward, reply, copy, save", AyuAppearancePlus.swipeMenu)
+         ]
+         if AyuAppearancePlus.needsRelaunch {
+             entries.append(.info(3, AyuAppearancePlusRow.relaunchInfo.rawValue, ru ? "⚠️ Перезапустите приложение, чтобы применить стекло и дизайн." : "⚠️ Relaunch the app to apply the glass and design changes."))
+diff --git a/submodules/SettingsUI/Sources/AyuCustomizationController.swift b/submodules/SettingsUI/Sources/AyuCustomizationController.swift
+index 30d931b1..8b91eb27 100644
+--- a/submodules/SettingsUI/Sources/AyuCustomizationController.swift
++++ b/submodules/SettingsUI/Sources/AyuCustomizationController.swift
+@@ -7,6 +7,9 @@ import TelegramPresentationData
+ import PresentationDataUtils
+ import ItemListUI
+ import AccountContext
++import TelegramUIPreferences
++import WallpaperGridScreen
++import WallpaperGalleryScreen
+ 
+ // Settings → AyuGram → Customization: palettes, every colour by hand, badges for chats and for you.
+ 
+@@ -41,10 +44,41 @@ private let ayuQuickColors: [(String, String, String)] = [
+     ("#000000", "Чёрный", "Black"), ("#FFFFFF", "Белый", "White"), ("#8E8E93", "Серый", "Gray")
+ ]
+ 
++private let ayuWallpapers: [(String, String, String)] = [
++    ("Black", "Чёрные", "Black"), ("Red", "Красные", "Red"), ("Violet", "Фиолетовые", "Violet"),
++    ("Purple", "Пурпурные", "Purple"), ("Blue", "Синие", "Blue")
++]
++
+ func ayuCustomizationController(context: AccountContext) -> ViewController {
+     var presentNative: ((UIViewController) -> Void)?
+     let russian = context.sharedContext.currentPresentationData.with { $0 }.strings.baseLanguageCode.hasPrefix("ru")
+ 
++    // Back to the theme's own background, so a palette's or a picked colour shows.
++    func clearChosenWallpaper() {
++        let _ = updatePresentationThemeSettingsInteractively(accountManager: context.sharedContext.accountManager, { current in
++            var wallpapers = current.themeSpecificChatWallpapers
++            let accentColor = current.themeSpecificAccentColors[current.theme.index]
++            wallpapers[coloredThemeIndex(reference: current.theme, accentColor: accentColor)] = nil
++            wallpapers[current.theme.index] = nil
++            return current.withUpdatedThemeSpecificChatWallpapers(wallpapers)
++        }).start()
++    }
++
++    func chooseWallpaper() {
++        let sheet = UIAlertController(title: russian ? "Обои VoidGram" : "VoidGram wallpapers", message: russian ? "Ставятся на текущую тему, и на чёрную тоже." : "Set on the current theme, the black one included.", preferredStyle: .actionSheet)
++        for (name, nameRu, nameEn) in ayuWallpapers {
++            sheet.addAction(UIAlertAction(title: russian ? nameRu : nameEn, style: .default, handler: { _ in
++                guard let image = Bundle.main.path(forResource: "VoidGramWallpaper\(name)", ofType: "jpg").flatMap(UIImage.init(contentsOfFile:)) else {
++                    return
++                }
++                uploadCustomWallpaper(context: context, wallpaper: .wallpaper(.color(0x000000), nil), mode: [], editedImage: image, cropRect: nil, brightness: nil, completion: {})
++            }))
++        }
++        sheet.addAction(UIAlertAction(title: russian ? "Как в теме" : "Theme default", style: .destructive, handler: { _ in clearChosenWallpaper() }))
++        sheet.addAction(UIAlertAction(title: russian ? "Отмена" : "Cancel", style: .cancel))
++        presentNative?(sheet)
++    }
++
+     func editColor(_ color: AyuCustomization.Color, title: String) {
+         let alert = UIAlertController(title: title, message: russian ? "HEX-код цвета, например #8E5CF7, или выберите ниже." : "A HEX colour such as #8E5CF7, or pick one below.", preferredStyle: .alert)
+         alert.addTextField { field in
+@@ -57,12 +91,20 @@ func ayuCustomizationController(context: AccountContext) -> ViewController {
+             let text = alert?.textFields?.first?.text ?? ""
+             if AyuCustomization.parse(text) != nil {
+                 AyuCustomization.set(color, hex: text)
++                if color == .wallpaper || color == .wallpaperSecond {
++                    clearChosenWallpaper()
++                }
+             }
+         }))
+         alert.addAction(UIAlertAction(title: russian ? "Готовые цвета…" : "Quick colours…", style: .default, handler: { _ in
+             let sheet = UIAlertController(title: title, message: nil, preferredStyle: .actionSheet)
+             for (hex, nameRu, nameEn) in ayuQuickColors {
+-                sheet.addAction(UIAlertAction(title: (russian ? nameRu : nameEn) + "  " + hex, style: .default, handler: { _ in AyuCustomization.set(color, hex: hex) }))
++                sheet.addAction(UIAlertAction(title: (russian ? nameRu : nameEn) + "  " + hex, style: .default, handler: { _ in
++                    AyuCustomization.set(color, hex: hex)
++                    if color == .wallpaper || color == .wallpaperSecond {
++                        clearChosenWallpaper()
++                    }
++                }))
+             }
+             sheet.addAction(UIAlertAction(title: russian ? "Отмена" : "Cancel", style: .cancel))
+             presentNative?(sheet)
+@@ -163,6 +205,8 @@ func ayuCustomizationController(context: AccountContext) -> ViewController {
+                 let row = ayuColorRows[index]
+                 editColor(row.0, title: russian ? row.2 : row.3)
+             }
++        case 26:
++            chooseWallpaper()
+         case 31:
+             editMyBadge()
+         case 32:
+@@ -200,7 +244,8 @@ func ayuCustomizationController(context: AccountContext) -> ViewController {
+             let value = AyuCustomization.rgb(row.0)
+             entries.append(.link(2, Int32(17 + index), AyuSettingsIcons.symbol(row.1, color: UIColor(rgb: value ?? 0x8E8E93), preserveColor: true), ru ? row.2 : row.3, AyuCustomization.hex(row.0) ?? (ru ? "как в теме" : "theme")))
+         }
+-        entries.append(.info(2, 26, ru ? "Цвета ложатся поверх любой темы и применяются после перезапуска приложения." : "Colours go on top of any theme and apply after the app is relaunched."))
++        entries.append(.link(2, 26, symbol("photo.on.rectangle.angled", 0x8E5CF7), ru ? "Обои VoidGram" : "VoidGram wallpapers", ""))
++        entries.append(.info(2, 27, ru ? "Цвета ложатся поверх любой темы и применяются после перезапуска приложения." : "Colours go on top of any theme and apply after the app is relaunched."))
+         entries.append(.header(3, 30, ru ? "БЕЙДЖИ" : "BADGES"))
+         entries.append(.link(3, 31, symbol("crown.fill", 0xFFCC00), ru ? "Мой бейдж" : "My badge", AyuCustomization.myBadge.isEmpty ? (ru ? "нет" : "none") : AyuCustomization.myBadge))
+         entries.append(.link(3, 32, symbol("plus.circle.fill", 0x34C759), ru ? "Добавить бейдж чату" : "Add a chat badge", ""))
+diff --git a/submodules/TelegramPresentationData/Sources/AyuCustomizedTheme.swift b/submodules/TelegramPresentationData/Sources/AyuCustomizedTheme.swift
+index 78f17acc..46196f4d 100644
+--- a/submodules/TelegramPresentationData/Sources/AyuCustomizedTheme.swift
++++ b/submodules/TelegramPresentationData/Sources/AyuCustomizedTheme.swift
+@@ -104,3 +104,17 @@ func ayuCustomWallpaper() -> TelegramWallpaper? {
+     }
+     return .color(first)
+ }
++
++/// Whether this is a wallpaper the user picked rather than a theme's default: a photo (VoidGram's
++/// own wallpapers are saved as photos too), or a file that isn't one of the built-in patterns.
++func ayuIsChosenWallpaper(_ wallpaper: TelegramWallpaper) -> Bool {
++    switch wallpaper {
++    case .image:
++        return true
++    case let .file(file):
++        let builtin: [BuiltinWallpaperData] = [.default, .legacy, .variant1, .variant2, .variant3, .variant4, .variant5, .variant6, .variant7, .variant8, .variant9]
++        return !builtin.contains(where: { $0.slug == file.slug })
++    default:
++        return false
++    }
++}
+diff --git a/submodules/TelegramPresentationData/Sources/PresentationData.swift b/submodules/TelegramPresentationData/Sources/PresentationData.swift
+index 64928c5c..358722d5 100644
+--- a/submodules/TelegramPresentationData/Sources/PresentationData.swift
++++ b/submodules/TelegramPresentationData/Sources/PresentationData.swift
+@@ -126,7 +126,9 @@ public final class PresentationData: Equatable {
+         // AyuGram: OLED mode first, then the user's own colours on top.
+         self.theme = ayuCustomizedTheme(ayuOledModeEnabled ? ayuOledTheme(from: theme) : theme)
+         self.autoNightModeTriggered = autoNightModeTriggered
+-        self.chatWallpaper = ayuCustomWallpaper() ?? (ayuOledModeEnabled ? .color(0x000000) : chatWallpaper)
++        // A wallpaper the user chose stays under palettes and the black theme; those only replace
++        // the theme's default.
++        self.chatWallpaper = ayuIsChosenWallpaper(chatWallpaper) ? chatWallpaper : (ayuCustomWallpaper() ?? (ayuOledModeEnabled ? .color(0x000000) : chatWallpaper))
+         // AyuGram plugin API `ayu.ui.font.set`: message and list text sizes.
+         self.chatFontSize = ayuPluginFontSize("messages") ?? chatFontSize
+         self.chatBubbleCorners = chatBubbleCorners

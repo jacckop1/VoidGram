@@ -257,5 +257,10 @@
   "submodules/Display/Source/AyuFeatureGateUI.swift",
   "submodules/ChatMessageBackground/Sources/AyuBubbleSkin.swift",
   "submodules/TelegramUI/Sources/AyuVideoDownloader.swift",
-  "submodules/TelegramUI/Sources/AyuBackgroundKeepAlive.swift"
+  "submodules/TelegramUI/Sources/AyuBackgroundKeepAlive.swift",
+  "submodules/AuthorizationUI/Sources/AyuWelcomeView.swift",
+  "submodules/Display/Source/AyuAvatarFrames.swift",
+  "submodules/SettingsUI/Sources/AyuAvatarFramePicker.swift",
+  "submodules/TelegramUI/Components/Chat/ChatMessageSwipeToReplyNode/Sources/AyuSwipeMenu.swift",
+  "submodules/TelegramUI/Sources/ChatControllerAyuSwipeMenu.swift"
 ]

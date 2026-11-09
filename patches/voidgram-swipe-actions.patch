@@ -1,0 +1,645 @@
+diff --git a/submodules/TelegramUI/Components/Chat/ChatMessageAnimatedStickerItemNode/Sources/ChatMessageAnimatedStickerItemNode.swift b/submodules/TelegramUI/Components/Chat/ChatMessageAnimatedStickerItemNode/Sources/ChatMessageAnimatedStickerItemNode.swift
+index 4755a32f..76982f76 100644
+--- a/submodules/TelegramUI/Components/Chat/ChatMessageAnimatedStickerItemNode/Sources/ChatMessageAnimatedStickerItemNode.swift
++++ b/submodules/TelegramUI/Components/Chat/ChatMessageAnimatedStickerItemNode/Sources/ChatMessageAnimatedStickerItemNode.swift
+@@ -98,6 +98,8 @@ public class ChatMessageAnimatedStickerItemNode: ChatMessageItemView {
+     private var additionalAnimationsCommitTimer: SwiftSignalKit.Timer?
+   
+     private var swipeToReplyNode: ChatMessageSwipeToReplyNode?
++    private var ayuSwipeMenu: AyuSwipeMenuSession?
++    private var ayuSwipeMenuZPosition: CGFloat = 0.0
+     private var swipeToReplyFeedback: HapticFeedback?
+     
+     private let labelNode: TextNodeWithEntities
+@@ -337,7 +339,7 @@ public class ChatMessageAnimatedStickerItemNode: ChatMessageItemView {
+                 let action = item.controllerInteraction.canSetupReply(item.message)
+                 strongSelf.currentSwipeAction = action
+                 if case .none = action {
+-                    return false
++                    return AyuAppearancePlus.swipeMenu && AyuSwipeMenuSession.canOpen(without: item.message)
+                 } else {
+                     return true
+                 }
+@@ -2682,7 +2684,21 @@ public class ChatMessageAnimatedStickerItemNode: ChatMessageItemView {
+                     }
+                 }
+             
+-                if let item = self.item, self.swipeToReplyNode == nil {
++                if let item = self.item, self.ayuSwipeMenu == nil, self.swipeToReplyNode == nil, AyuAppearancePlus.swipeMenu {
++                    var canReply = false
++                    if case .reply = self.currentSwipeAction {
++                        canReply = true
++                    }
++                    let messages = item.content.map { $0.0 }
++                    if let menu = AyuSwipeMenuSession(messages: messages, canReply: canReply, fillColor: selectDateFillStaticColor(theme: item.presentationData.theme.theme, wallpaper: item.presentationData.theme.wallpaper), foregroundColor: bubbleVariableColor(variableColor: item.presentationData.theme.theme.chat.message.shareButtonForegroundColor, wallpaper: item.presentationData.theme.wallpaper), accentColor: item.presentationData.theme.theme.list.itemCheckColors.fillColor, russian: item.presentationData.strings.baseLanguageCode.hasPrefix("ru")) {
++                        self.ayuSwipeMenu = menu
++                        self.insertSubnode(menu.node, at: 0)
++                        // Above the rows around it: the actions are taller than a short message.
++                        self.ayuSwipeMenuZPosition = self.layer.zPosition
++                        self.layer.zPosition = 1000.0
++                    }
++                }
++                if let item = self.item, self.swipeToReplyNode == nil, self.ayuSwipeMenu == nil {
+                     let swipeToReplyNode = ChatMessageSwipeToReplyNode(fillColor: selectDateFillStaticColor(theme: item.presentationData.theme.theme, wallpaper: item.presentationData.theme.wallpaper), enableBlur: item.controllerInteraction.enableFullTranslucency && dateFillNeedsBlur(theme: item.presentationData.theme.theme, wallpaper: item.presentationData.theme.wallpaper), foregroundColor: bubbleVariableColor(variableColor: item.presentationData.theme.theme.chat.message.shareButtonForegroundColor, wallpaper: item.presentationData.theme.wallpaper), backgroundNode: item.controllerInteraction.presentationContext.backgroundNode, action: ChatMessageSwipeToReplyNode.Action(self.currentSwipeAction))
+                     self.swipeToReplyNode = swipeToReplyNode
+                     self.insertSubnode(swipeToReplyNode, at: 0)
+@@ -2694,6 +2710,16 @@ public class ChatMessageAnimatedStickerItemNode: ChatMessageItemView {
+                 self.bounds = bounds
+ 
+                 self.updateAttachedAvatarNodeOffset(offset: translation.x, transition: .immediate)
++                
++                if let menu = self.ayuSwipeMenu {
++                    let changed = menu.update(position: CGPoint(x: self.bounds.size.width + offset + 20.0, y: recognizer.firstLocation.y), verticalTranslation: recognizer.translation(in: self.view).y, progress: abs(translation.x) / swipeOffset)
++                    if changed {
++                        self.swipeToReplyFeedback?.tap()
++                    } else if abs(translation.x) >= swipeOffset && !self.playedSwipeToReplyHaptic {
++                        self.playedSwipeToReplyHaptic = true
++                        self.swipeToReplyFeedback?.impact(.heavy)
++                    }
++                }
+             
+                 if let swipeToReplyNode = self.swipeToReplyNode {
+                     swipeToReplyNode.bounds = CGRect(origin: .zero, size: CGSize(width: 33.0, height: 33.0))
+@@ -2730,7 +2756,13 @@ public class ChatMessageAnimatedStickerItemNode: ChatMessageItemView {
+                     gestureRecognized = translation.x < -swipeOffset
+                 }
+             
+-                if case .ended = recognizer.state, gestureRecognized {
++                if case .ended = recognizer.state, gestureRecognized, let menu = self.ayuSwipeMenu, let item = self.item {
++                    if case .reply = menu.selectedAction {
++                        item.controllerInteraction.setupReply(item.message.id)
++                    } else {
++                        item.controllerInteraction.ayuSwipeMenuPerform(menu.selectedAction, item.content.map { $0.0 })
++                    }
++                } else if case .ended = recognizer.state, gestureRecognized {
+                     if let item = self.item {
+                         if let currentSwipeAction = currentSwipeAction {
+                             switch currentSwipeAction {
+@@ -2750,6 +2782,11 @@ public class ChatMessageAnimatedStickerItemNode: ChatMessageItemView {
+ 
+                 self.updateAttachedAvatarNodeOffset(offset: 0.0, transition: .animated(duration: 0.3, curve: .spring))
+ 
++                if let menu = self.ayuSwipeMenu {
++                    self.ayuSwipeMenu = nil
++                    self.layer.zPosition = self.ayuSwipeMenuZPosition
++                    menu.animateOut()
++                }
+                 if let swipeToReplyNode = self.swipeToReplyNode {
+                     self.swipeToReplyNode = nil
+                     swipeToReplyNode.layer.animateAlpha(from: 1.0, to: 0.0, duration: 0.3, removeOnCompletion: false, completion: { [weak swipeToReplyNode] _ in
+diff --git a/submodules/TelegramUI/Components/Chat/ChatMessageBubbleItemNode/Sources/ChatMessageBubbleItemNode.swift b/submodules/TelegramUI/Components/Chat/ChatMessageBubbleItemNode/Sources/ChatMessageBubbleItemNode.swift
+index 0b263956..43b22e99 100644
+--- a/submodules/TelegramUI/Components/Chat/ChatMessageBubbleItemNode/Sources/ChatMessageBubbleItemNode.swift
++++ b/submodules/TelegramUI/Components/Chat/ChatMessageBubbleItemNode/Sources/ChatMessageBubbleItemNode.swift
+@@ -697,6 +697,8 @@ public class ChatMessageBubbleItemNode: ChatMessageItemView, ChatMessagePreviewI
+     private var selectionNode: ChatMessageSelectionNode?
+     private var deliveryFailedNode: ChatMessageDeliveryFailedNode?
+     private var swipeToReplyNode: ChatMessageSwipeToReplyNode?
++    private var ayuSwipeMenu: AyuSwipeMenuSession?
++    private var ayuSwipeMenuZPosition: CGFloat = 0.0
+     private var swipeToReplyFeedback: HapticFeedback?
+     
+     private var nameAvatarNode: AvatarNode?
+@@ -1520,7 +1522,7 @@ public class ChatMessageBubbleItemNode: ChatMessageItemView, ChatMessagePreviewI
+                 let action = item.controllerInteraction.canSetupReply(item.message)
+                 strongSelf.currentSwipeAction = action
+                 if case .none = action {
+-                    return false
++                    return AyuAppearancePlus.swipeMenu && AyuSwipeMenuSession.canOpen(without: item.message)
+                 } else {
+                     return true
+                 }
+@@ -7432,7 +7434,21 @@ public class ChatMessageBubbleItemNode: ChatMessageItemView, ChatMessagePreviewI
+                     }
+                 }
+             
+-                if let item = self.item, self.swipeToReplyNode == nil {
++                if let item = self.item, self.ayuSwipeMenu == nil, self.swipeToReplyNode == nil, AyuAppearancePlus.swipeMenu {
++                    var canReply = false
++                    if case .reply = self.currentSwipeAction {
++                        canReply = true
++                    }
++                    let messages = item.content.map { $0.0 }
++                    if let menu = AyuSwipeMenuSession(messages: messages, canReply: canReply, fillColor: selectDateFillStaticColor(theme: item.presentationData.theme.theme, wallpaper: item.presentationData.theme.wallpaper), foregroundColor: bubbleVariableColor(variableColor: item.presentationData.theme.theme.chat.message.shareButtonForegroundColor, wallpaper: item.presentationData.theme.wallpaper), accentColor: item.presentationData.theme.theme.list.itemCheckColors.fillColor, russian: item.presentationData.strings.baseLanguageCode.hasPrefix("ru")) {
++                        self.ayuSwipeMenu = menu
++                        self.insertSubnode(menu.node, at: 0)
++                        // Above the rows around it: the actions are taller than a short message.
++                        self.ayuSwipeMenuZPosition = self.layer.zPosition
++                        self.layer.zPosition = 1000.0
++                    }
++                }
++                if let item = self.item, self.swipeToReplyNode == nil, self.ayuSwipeMenu == nil {
+                     let swipeToReplyNode = ChatMessageSwipeToReplyNode(fillColor: selectDateFillStaticColor(theme: item.presentationData.theme.theme, wallpaper: item.presentationData.theme.wallpaper), enableBlur: item.controllerInteraction.enableFullTranslucency && dateFillNeedsBlur(theme: item.presentationData.theme.theme, wallpaper: item.presentationData.theme.wallpaper), foregroundColor: bubbleVariableColor(variableColor: item.presentationData.theme.theme.chat.message.shareButtonForegroundColor, wallpaper: item.presentationData.theme.wallpaper), backgroundNode: item.controllerInteraction.presentationContext.backgroundNode, action: ChatMessageSwipeToReplyNode.Action(self.currentSwipeAction))
+                     self.swipeToReplyNode = swipeToReplyNode
+                     self.insertSubnode(swipeToReplyNode, at: 0)
+@@ -7447,6 +7463,16 @@ public class ChatMessageBubbleItemNode: ChatMessageItemView, ChatMessagePreviewI
+                 self.shadowNode.bounds = shadowBounds
+ 
+                 self.updateAttachedAvatarNodeOffset(offset: translation.x, transition: .immediate)
++                
++                if let menu = self.ayuSwipeMenu {
++                    let changed = menu.update(position: CGPoint(x: self.bounds.size.width + offset + 20.0, y: recognizer.firstLocation.y), verticalTranslation: recognizer.translation(in: self.view).y, progress: abs(translation.x) / swipeOffset)
++                    if changed {
++                        self.swipeToReplyFeedback?.tap()
++                    } else if abs(translation.x) >= swipeOffset && !self.playedSwipeToReplyHaptic {
++                        self.playedSwipeToReplyHaptic = true
++                        self.swipeToReplyFeedback?.impact(.heavy)
++                    }
++                }
+             
+                 if let swipeToReplyNode = self.swipeToReplyNode {
+                     if translation.x < 0.0 {
+@@ -7480,7 +7506,13 @@ public class ChatMessageBubbleItemNode: ChatMessageItemView, ChatMessagePreviewI
+                 } else {
+                     gestureRecognized = translation.x < -swipeOffset
+                 }
+-                if case .ended = recognizer.state, gestureRecognized {
++                if case .ended = recognizer.state, gestureRecognized, let menu = self.ayuSwipeMenu, let item = self.item {
++                    if case .reply = menu.selectedAction {
++                        item.controllerInteraction.setupReply(item.message.id)
++                    } else {
++                        item.controllerInteraction.ayuSwipeMenuPerform(menu.selectedAction, item.content.map { $0.0 })
++                    }
++                } else if case .ended = recognizer.state, gestureRecognized {
+                     if let item = self.item {
+                         if let currentSwipeAction = currentSwipeAction {
+                             switch currentSwipeAction {
+@@ -7505,6 +7537,11 @@ public class ChatMessageBubbleItemNode: ChatMessageItemView, ChatMessagePreviewI
+                 self.updateAttachedAvatarNodeOffset(offset: 0.0, transition: .animated(duration: 0.3, curve: .spring))
+ 
+                 self.shadowNode.layer.animateBounds(from: previousShadowBounds, to: shadowBounds, duration: 0.3, timingFunction: kCAMediaTimingFunctionSpring)
++                if let menu = self.ayuSwipeMenu {
++                    self.ayuSwipeMenu = nil
++                    self.layer.zPosition = self.ayuSwipeMenuZPosition
++                    menu.animateOut()
++                }
+                 if let swipeToReplyNode = self.swipeToReplyNode {
+                     self.swipeToReplyNode = nil
+                     swipeToReplyNode.layer.animateAlpha(from: 1.0, to: 0.0, duration: 0.3, removeOnCompletion: false, completion: { [weak swipeToReplyNode] _ in
+diff --git a/submodules/TelegramUI/Components/Chat/ChatMessageInstantVideoItemNode/Sources/ChatMessageInstantVideoItemNode.swift b/submodules/TelegramUI/Components/Chat/ChatMessageInstantVideoItemNode/Sources/ChatMessageInstantVideoItemNode.swift
+index a0727e86..692a2a8a 100644
+--- a/submodules/TelegramUI/Components/Chat/ChatMessageInstantVideoItemNode/Sources/ChatMessageInstantVideoItemNode.swift
++++ b/submodules/TelegramUI/Components/Chat/ChatMessageInstantVideoItemNode/Sources/ChatMessageInstantVideoItemNode.swift
+@@ -43,6 +43,8 @@ public class ChatMessageInstantVideoItemNode: ChatMessageItemView, ASGestureReco
+     public var shareButtonNode: ChatMessageShareButton?
+     
+     public var swipeToReplyNode: ChatMessageSwipeToReplyNode?
++    private var ayuSwipeMenu: AyuSwipeMenuSession?
++    private var ayuSwipeMenuZPosition: CGFloat = 0.0
+     public var swipeToReplyFeedback: HapticFeedback?
+     
+     public var appliedParams: ListViewItemLayoutParams?
+@@ -227,7 +229,7 @@ public class ChatMessageInstantVideoItemNode: ChatMessageItemView, ASGestureReco
+                 let action = item.controllerInteraction.canSetupReply(item.message)
+                 strongSelf.currentSwipeAction = action
+                 if case .none = action {
+-                    return false
++                    return AyuAppearancePlus.swipeMenu && AyuSwipeMenuSession.canOpen(without: item.message)
+                 } else {
+                     return true
+                 }
+@@ -1107,7 +1109,21 @@ public class ChatMessageInstantVideoItemNode: ChatMessageItemView, ASGestureReco
+                     }
+                 }
+             
+-                if let item = self.item, self.swipeToReplyNode == nil {
++                if let item = self.item, self.ayuSwipeMenu == nil, self.swipeToReplyNode == nil, AyuAppearancePlus.swipeMenu {
++                    var canReply = false
++                    if case .reply = self.currentSwipeAction {
++                        canReply = true
++                    }
++                    let messages = item.content.map { $0.0 }
++                    if let menu = AyuSwipeMenuSession(messages: messages, canReply: canReply, fillColor: selectDateFillStaticColor(theme: item.presentationData.theme.theme, wallpaper: item.presentationData.theme.wallpaper), foregroundColor: bubbleVariableColor(variableColor: item.presentationData.theme.theme.chat.message.shareButtonForegroundColor, wallpaper: item.presentationData.theme.wallpaper), accentColor: item.presentationData.theme.theme.list.itemCheckColors.fillColor, russian: item.presentationData.strings.baseLanguageCode.hasPrefix("ru")) {
++                        self.ayuSwipeMenu = menu
++                        self.insertSubnode(menu.node, at: 0)
++                        // Above the rows around it: the actions are taller than a short message.
++                        self.ayuSwipeMenuZPosition = self.layer.zPosition
++                        self.layer.zPosition = 1000.0
++                    }
++                }
++                if let item = self.item, self.swipeToReplyNode == nil, self.ayuSwipeMenu == nil {
+                     let swipeToReplyNode = ChatMessageSwipeToReplyNode(fillColor: selectDateFillStaticColor(theme: item.presentationData.theme.theme, wallpaper: item.presentationData.theme.wallpaper), enableBlur: item.controllerInteraction.enableFullTranslucency && dateFillNeedsBlur(theme: item.presentationData.theme.theme, wallpaper: item.presentationData.theme.wallpaper), foregroundColor: bubbleVariableColor(variableColor: item.presentationData.theme.theme.chat.message.shareButtonForegroundColor, wallpaper: item.presentationData.theme.wallpaper), backgroundNode: item.controllerInteraction.presentationContext.backgroundNode, action: ChatMessageSwipeToReplyNode.Action(self.currentSwipeAction))
+                     self.swipeToReplyNode = swipeToReplyNode
+                     self.insertSubnode(swipeToReplyNode, at: 0)
+@@ -1119,6 +1135,16 @@ public class ChatMessageInstantVideoItemNode: ChatMessageItemView, ASGestureReco
+                 self.bounds = bounds
+ 
+                 self.updateAttachedAvatarNodeOffset(offset: translation.x, transition: .immediate)
++                
++                if let menu = self.ayuSwipeMenu {
++                    let changed = menu.update(position: CGPoint(x: self.bounds.size.width + offset + 20.0, y: recognizer.firstLocation.y), verticalTranslation: recognizer.translation(in: self.view).y, progress: abs(translation.x) / swipeOffset)
++                    if changed {
++                        self.swipeToReplyFeedback?.tap()
++                    } else if abs(translation.x) >= swipeOffset && !self.playedSwipeToReplyHaptic {
++                        self.playedSwipeToReplyHaptic = true
++                        self.swipeToReplyFeedback?.impact(.heavy)
++                    }
++                }
+             
+                 if let swipeToReplyNode = self.swipeToReplyNode {
+                     swipeToReplyNode.bounds = CGRect(origin: .zero, size: CGSize(width: 33.0, height: 33.0))
+@@ -1153,7 +1179,13 @@ public class ChatMessageInstantVideoItemNode: ChatMessageItemView, ASGestureReco
+                 } else {
+                     gestureRecognized = translation.x < -swipeOffset
+                 }
+-                if case .ended = recognizer.state, gestureRecognized {
++                if case .ended = recognizer.state, gestureRecognized, let menu = self.ayuSwipeMenu, let item = self.item {
++                    if case .reply = menu.selectedAction {
++                        item.controllerInteraction.setupReply(item.message.id)
++                    } else {
++                        item.controllerInteraction.ayuSwipeMenuPerform(menu.selectedAction, item.content.map { $0.0 })
++                    }
++                } else if case .ended = recognizer.state, gestureRecognized {
+                     if let item = self.item {
+                         if let currentSwipeAction = currentSwipeAction {
+                             switch currentSwipeAction {
+@@ -1173,6 +1205,11 @@ public class ChatMessageInstantVideoItemNode: ChatMessageItemView, ASGestureReco
+ 
+                 self.updateAttachedAvatarNodeOffset(offset: 0.0, transition: .animated(duration: 0.3, curve: .spring))
+ 
++                if let menu = self.ayuSwipeMenu {
++                    self.ayuSwipeMenu = nil
++                    self.layer.zPosition = self.ayuSwipeMenuZPosition
++                    menu.animateOut()
++                }
+                 if let swipeToReplyNode = self.swipeToReplyNode {
+                     self.swipeToReplyNode = nil
+                     swipeToReplyNode.layer.animateAlpha(from: 1.0, to: 0.0, duration: 0.3, removeOnCompletion: false, completion: { [weak swipeToReplyNode] _ in
+diff --git a/submodules/TelegramUI/Components/Chat/ChatMessageStickerItemNode/Sources/ChatMessageStickerItemNode.swift b/submodules/TelegramUI/Components/Chat/ChatMessageStickerItemNode/Sources/ChatMessageStickerItemNode.swift
+index a34811ac..0cbc0f43 100644
+--- a/submodules/TelegramUI/Components/Chat/ChatMessageStickerItemNode/Sources/ChatMessageStickerItemNode.swift
++++ b/submodules/TelegramUI/Components/Chat/ChatMessageStickerItemNode/Sources/ChatMessageStickerItemNode.swift
+@@ -42,6 +42,8 @@ public class ChatMessageStickerItemNode: ChatMessageItemView {
+     public var textNode: TextNode?
+     
+     private var swipeToReplyNode: ChatMessageSwipeToReplyNode?
++    private var ayuSwipeMenu: AyuSwipeMenuSession?
++    private var ayuSwipeMenuZPosition: CGFloat = 0.0
+     private var swipeToReplyFeedback: HapticFeedback?
+     
+     private var selectionNode: ChatMessageSelectionNode?
+@@ -270,7 +272,7 @@ public class ChatMessageStickerItemNode: ChatMessageItemView {
+                 let action = item.controllerInteraction.canSetupReply(item.message)
+                 strongSelf.currentSwipeAction = action
+                 if case .none = action {
+-                    return false
++                    return AyuAppearancePlus.swipeMenu && AyuSwipeMenuSession.canOpen(without: item.message)
+                 } else {
+                     return true
+                 }
+@@ -1662,7 +1664,21 @@ public class ChatMessageStickerItemNode: ChatMessageItemView {
+                     }
+                 }
+             
+-                if let item = self.item, self.swipeToReplyNode == nil {
++                if let item = self.item, self.ayuSwipeMenu == nil, self.swipeToReplyNode == nil, AyuAppearancePlus.swipeMenu {
++                    var canReply = false
++                    if case .reply = self.currentSwipeAction {
++                        canReply = true
++                    }
++                    let messages = item.content.map { $0.0 }
++                    if let menu = AyuSwipeMenuSession(messages: messages, canReply: canReply, fillColor: selectDateFillStaticColor(theme: item.presentationData.theme.theme, wallpaper: item.presentationData.theme.wallpaper), foregroundColor: bubbleVariableColor(variableColor: item.presentationData.theme.theme.chat.message.shareButtonForegroundColor, wallpaper: item.presentationData.theme.wallpaper), accentColor: item.presentationData.theme.theme.list.itemCheckColors.fillColor, russian: item.presentationData.strings.baseLanguageCode.hasPrefix("ru")) {
++                        self.ayuSwipeMenu = menu
++                        self.insertSubnode(menu.node, at: 0)
++                        // Above the rows around it: the actions are taller than a short message.
++                        self.ayuSwipeMenuZPosition = self.layer.zPosition
++                        self.layer.zPosition = 1000.0
++                    }
++                }
++                if let item = self.item, self.swipeToReplyNode == nil, self.ayuSwipeMenu == nil {
+                     let swipeToReplyNode = ChatMessageSwipeToReplyNode(fillColor: selectDateFillStaticColor(theme: item.presentationData.theme.theme, wallpaper: item.presentationData.theme.wallpaper), enableBlur: item.controllerInteraction.enableFullTranslucency && dateFillNeedsBlur(theme: item.presentationData.theme.theme, wallpaper: item.presentationData.theme.wallpaper), foregroundColor: bubbleVariableColor(variableColor: item.presentationData.theme.theme.chat.message.shareButtonForegroundColor, wallpaper: item.presentationData.theme.wallpaper), backgroundNode: item.controllerInteraction.presentationContext.backgroundNode, action: ChatMessageSwipeToReplyNode.Action(self.currentSwipeAction))
+                     self.swipeToReplyNode = swipeToReplyNode
+                     self.insertSubnode(swipeToReplyNode, at: 0)
+@@ -1674,6 +1690,16 @@ public class ChatMessageStickerItemNode: ChatMessageItemView {
+                 self.bounds = bounds
+ 
+                 self.updateAttachedAvatarNodeOffset(offset: translation.x, transition: .immediate)
++                
++                if let menu = self.ayuSwipeMenu {
++                    let changed = menu.update(position: CGPoint(x: self.bounds.size.width + offset + 20.0, y: recognizer.firstLocation.y), verticalTranslation: recognizer.translation(in: self.view).y, progress: abs(translation.x) / swipeOffset)
++                    if changed {
++                        self.swipeToReplyFeedback?.tap()
++                    } else if abs(translation.x) >= swipeOffset && !self.playedSwipeToReplyHaptic {
++                        self.playedSwipeToReplyHaptic = true
++                        self.swipeToReplyFeedback?.impact(.heavy)
++                    }
++                }
+             
+                 if let swipeToReplyNode = self.swipeToReplyNode {
+                     swipeToReplyNode.bounds = CGRect(origin: .zero, size: CGSize(width: 33.0, height: 33.0))
+@@ -1708,7 +1734,13 @@ public class ChatMessageStickerItemNode: ChatMessageItemView {
+                 } else {
+                     gestureRecognized = translation.x < -swipeOffset
+                 }
+-                if case .ended = recognizer.state, gestureRecognized {
++                if case .ended = recognizer.state, gestureRecognized, let menu = self.ayuSwipeMenu, let item = self.item {
++                    if case .reply = menu.selectedAction {
++                        item.controllerInteraction.setupReply(item.message.id)
++                    } else {
++                        item.controllerInteraction.ayuSwipeMenuPerform(menu.selectedAction, item.content.map { $0.0 })
++                    }
++                } else if case .ended = recognizer.state, gestureRecognized {
+                     if let item = self.item {
+                         if let currentSwipeAction = currentSwipeAction {
+                             switch currentSwipeAction {
+@@ -1728,6 +1760,11 @@ public class ChatMessageStickerItemNode: ChatMessageItemView {
+ 
+                 self.updateAttachedAvatarNodeOffset(offset: 0.0, transition: .animated(duration: 0.3, curve: .spring))
+ 
++                if let menu = self.ayuSwipeMenu {
++                    self.ayuSwipeMenu = nil
++                    self.layer.zPosition = self.ayuSwipeMenuZPosition
++                    menu.animateOut()
++                }
+                 if let swipeToReplyNode = self.swipeToReplyNode {
+                     self.swipeToReplyNode = nil
+                     swipeToReplyNode.layer.animateAlpha(from: 1.0, to: 0.0, duration: 0.3, removeOnCompletion: false, completion: { [weak swipeToReplyNode] _ in
+diff --git a/submodules/TelegramUI/Components/Chat/ChatMessageSwipeToReplyNode/BUILD b/submodules/TelegramUI/Components/Chat/ChatMessageSwipeToReplyNode/BUILD
+index 150eeba1..5b21f963 100644
+--- a/submodules/TelegramUI/Components/Chat/ChatMessageSwipeToReplyNode/BUILD
++++ b/submodules/TelegramUI/Components/Chat/ChatMessageSwipeToReplyNode/BUILD
+@@ -12,6 +12,7 @@ swift_library(
+     deps = [
+         "//submodules/Display",
+         "//submodules/AsyncDisplayKit",
++        "//submodules/TelegramCore",
+         "//submodules/AppBundle",
+         "//submodules/WallpaperBackgroundNode",
+         "//submodules/TelegramUI/Components/ChatControllerInteraction",
+diff --git a/submodules/TelegramUI/Components/Chat/ChatMessageSwipeToReplyNode/Sources/AyuSwipeMenu.swift b/submodules/TelegramUI/Components/Chat/ChatMessageSwipeToReplyNode/Sources/AyuSwipeMenu.swift
+new file mode 100644
+index 00000000..694c6914
+--- /dev/null
++++ b/submodules/TelegramUI/Components/Chat/ChatMessageSwipeToReplyNode/Sources/AyuSwipeMenu.swift
+@@ -0,0 +1,158 @@
++import Foundation
++import UIKit
++import Display
++import AsyncDisplayKit
++import TelegramCore
++import ChatControllerInteraction
++
++/// The actions a swiped message offers: a column beside it, with the one under the finger named.
++/// Moving the finger up or down chooses; releasing past the swipe distance performs it.
++public final class AyuSwipeMenuSession {
++    private static let rowHeight: CGFloat = 38.0
++    private static let width: CGFloat = 38.0
++
++    public let node = ASDisplayNode()
++    private let actions: [ChatControllerAyuSwipeAction]
++    private let baseIndex: Int
++    private let russian: Bool
++    private let foregroundColor: UIColor
++    private let highlight = UIView()
++    private let label = UILabel()
++    private let labelBackground = UIView()
++    private var icons: [UIImageView] = []
++    private var selectedIndex: Int
++
++    public var selectedAction: ChatControllerAyuSwipeAction {
++        return self.actions[self.selectedIndex]
++    }
++
++    /// A message with no reply can still be swiped for its other actions, unless it's an ad or not
++    /// on the server yet.
++    public static func canOpen(without message: EngineRawMessage) -> Bool {
++        if message.id.namespace != Namespaces.Message.Cloud {
++            return false
++        }
++        return message.adAttribute == nil
++    }
++
++    private static func actions(messages: [EngineRawMessage], canReply: Bool) -> [ChatControllerAyuSwipeAction] {
++        guard let first = messages.first else {
++            return []
++        }
++        let protected = first.isCopyProtected()
++        var result: [ChatControllerAyuSwipeAction] = []
++        if !protected && first.id.namespace == Namespaces.Message.Cloud {
++            result.append(.forward)
++        }
++        if canReply {
++            result.append(.reply)
++        }
++        if !protected {
++            let media = messages.flatMap { $0.media }
++            if media.contains(where: { ($0 as? TelegramMediaFile)?.isSticker == true || ($0 as? TelegramMediaFile)?.isAnimatedSticker == true || ($0 as? TelegramMediaFile)?.isVideoSticker == true }) {
++                result.append(.favorite)
++            } else if media.contains(where: { $0 is TelegramMediaImage || (($0 as? TelegramMediaFile)?.isVideo == true && ($0 as? TelegramMediaFile)?.isInstantVideo == false) }) {
++                result.append(.save)
++            } else if messages.contains(where: { !$0.text.isEmpty }) {
++                result.append(.copy)
++            }
++        }
++        return result
++    }
++
++    private static func symbol(_ action: ChatControllerAyuSwipeAction) -> String {
++        switch action {
++        case .forward: return "arrowshape.turn.up.right.fill"
++        case .reply: return "arrowshape.turn.up.left.fill"
++        case .copy: return "doc.on.doc.fill"
++        case .save: return "square.and.arrow.down.fill"
++        case .favorite: return "star.fill"
++        }
++    }
++
++    private func title(_ action: ChatControllerAyuSwipeAction) -> String {
++        switch action {
++        case .forward: return self.russian ? "Переслать" : "Forward"
++        case .reply: return self.russian ? "Ответить" : "Reply"
++        case .copy: return self.russian ? "Копировать" : "Copy"
++        case .save: return self.russian ? "Сохранить" : "Save"
++        case .favorite: return self.russian ? "В избранное" : "Add to Favorites"
++        }
++    }
++
++    public init?(messages: [EngineRawMessage], canReply: Bool, fillColor: UIColor, foregroundColor: UIColor, accentColor: UIColor, russian: Bool) {
++        let actions = AyuSwipeMenuSession.actions(messages: messages, canReply: canReply)
++        if actions.isEmpty {
++            return nil
++        }
++        self.actions = actions
++        let baseIndex = actions.firstIndex(of: .reply) ?? 0
++        self.baseIndex = baseIndex
++        self.selectedIndex = baseIndex
++        self.russian = russian
++        self.foregroundColor = foregroundColor
++
++        let height = CGFloat(actions.count) * AyuSwipeMenuSession.rowHeight
++        self.node.isUserInteractionEnabled = false
++        self.node.alpha = 0.0
++        self.node.bounds = CGRect(x: 0.0, y: 0.0, width: AyuSwipeMenuSession.width, height: height)
++        self.node.backgroundColor = fillColor
++        self.node.cornerRadius = AyuSwipeMenuSession.width / 2.0
++
++        self.highlight.backgroundColor = accentColor
++        self.highlight.layer.cornerRadius = (AyuSwipeMenuSession.width - 4.0) / 2.0
++        self.node.view.addSubview(self.highlight)
++
++        let configuration = UIImage.SymbolConfiguration(pointSize: 15.0, weight: .semibold)
++        for (index, action) in actions.enumerated() {
++            let icon = UIImageView(image: UIImage(systemName: AyuSwipeMenuSession.symbol(action), withConfiguration: configuration)?.withRenderingMode(.alwaysTemplate))
++            icon.contentMode = .center
++            icon.frame = CGRect(x: 0.0, y: CGFloat(index) * AyuSwipeMenuSession.rowHeight, width: AyuSwipeMenuSession.width, height: AyuSwipeMenuSession.rowHeight)
++            self.node.view.addSubview(icon)
++            self.icons.append(icon)
++        }
++
++        self.labelBackground.backgroundColor = accentColor
++        self.labelBackground.layer.cornerRadius = 13.0
++        self.label.font = Font.semibold(13.0)
++        self.label.textColor = .white
++        self.labelBackground.addSubview(self.label)
++        self.node.view.addSubview(self.labelBackground)
++
++        self.applySelection()
++    }
++
++    private func applySelection() {
++        let rowHeight = AyuSwipeMenuSession.rowHeight
++        let rowY = CGFloat(self.selectedIndex) * rowHeight
++        self.highlight.frame = CGRect(x: 2.0, y: rowY + (rowHeight - (AyuSwipeMenuSession.width - 4.0)) / 2.0, width: AyuSwipeMenuSession.width - 4.0, height: AyuSwipeMenuSession.width - 4.0)
++        for (index, icon) in self.icons.enumerated() {
++            icon.tintColor = index == self.selectedIndex ? .white : self.foregroundColor
++        }
++        self.label.text = self.title(self.selectedAction)
++        self.label.sizeToFit()
++        let labelSize = CGSize(width: self.label.bounds.width + 20.0, height: 26.0)
++        self.labelBackground.frame = CGRect(x: -labelSize.width - 6.0, y: rowY + (rowHeight - labelSize.height) / 2.0, width: labelSize.width, height: labelSize.height)
++        self.label.frame = CGRect(x: 10.0, y: floor((labelSize.height - self.label.bounds.height) / 2.0), width: self.label.bounds.width, height: self.label.bounds.height)
++    }
++
++    /// Returns whether the finger moved to another action.
++    public func update(position: CGPoint, verticalTranslation: CGFloat, progress: CGFloat) -> Bool {
++        self.node.position = position
++        self.node.alpha = max(0.0, min(1.0, progress * 1.4 - 0.2))
++        let target = max(0, min(self.actions.count - 1, self.baseIndex + Int((verticalTranslation / AyuSwipeMenuSession.rowHeight).rounded())))
++        if target == self.selectedIndex {
++            return false
++        }
++        self.selectedIndex = target
++        self.applySelection()
++        return true
++    }
++
++    public func animateOut() {
++        let node = self.node
++        node.layer.animateAlpha(from: node.alpha, to: 0.0, duration: 0.2, removeOnCompletion: false, completion: { [weak node] _ in
++            node?.removeFromSupernode()
++        })
++    }
++}
+diff --git a/submodules/TelegramUI/Components/ChatControllerInteraction/Sources/ChatControllerInteraction.swift b/submodules/TelegramUI/Components/ChatControllerInteraction/Sources/ChatControllerInteraction.swift
+index d78c8dd3..d50de13e 100644
+--- a/submodules/TelegramUI/Components/ChatControllerInteraction/Sources/ChatControllerInteraction.swift
++++ b/submodules/TelegramUI/Components/ChatControllerInteraction/Sources/ChatControllerInteraction.swift
+@@ -140,6 +140,15 @@ public final class ChatSendMessageEffect {
+     }
+ }
+ 
++/// What the swipe menu on a message can do (VoidGram).
++public enum ChatControllerAyuSwipeAction: Equatable {
++    case forward
++    case reply
++    case copy
++    case save
++    case favorite
++}
++
+ public final class ChatControllerInteraction: ChatControllerInteractionProtocol {
+     public enum OpenPeerSource {
+         case `default`
+@@ -252,6 +261,7 @@ public final class ChatControllerInteraction: ChatControllerInteractionProtocol
+     public let openCheckoutOrReceipt: (EngineMessage.Id, OpenMessageParams?) -> Void
+     public let openSearch: () -> Void
+     public var ayuEditOnDoubleTap: (EngineRawMessage) -> Bool = { _ in false }
++    public var ayuSwipeMenuPerform: (ChatControllerAyuSwipeAction, [EngineRawMessage]) -> Void = { _, _ in }
+     public let setupReply: (EngineMessage.Id) -> Void
+     public let canSetupReply: (EngineRawMessage) -> ChatControllerInteractionSwipeAction
+     public let canSendMessages: () -> Bool
+diff --git a/submodules/TelegramUI/Sources/ChatController.swift b/submodules/TelegramUI/Sources/ChatController.swift
+index 81761be9..bcac5f1a 100644
+--- a/submodules/TelegramUI/Sources/ChatController.swift
++++ b/submodules/TelegramUI/Sources/ChatController.swift
+@@ -6123,6 +6123,9 @@ public final class ChatControllerImpl: TelegramBaseController, ChatController, G
+             return self.interfaceInteraction != nil
+         }
+         self.controllerInteraction = controllerInteraction
++        controllerInteraction.ayuSwipeMenuPerform = { [weak self] action, messages in
++            self?.ayuPerformSwipeMenu(action: action, messages: messages)
++        }
+         controllerInteraction.requestWalletTransferArrival = { [weak self] message in
+             self?.walletTransferAnimationCoordinator().requestArrival(message)
+         }
+diff --git a/submodules/TelegramUI/Sources/ChatControllerAyuSwipeMenu.swift b/submodules/TelegramUI/Sources/ChatControllerAyuSwipeMenu.swift
+new file mode 100644
+index 00000000..29a4dbae
+--- /dev/null
++++ b/submodules/TelegramUI/Sources/ChatControllerAyuSwipeMenu.swift
+@@ -0,0 +1,65 @@
++import Foundation
++import UIKit
++import Display
++import SwiftSignalKit
++import TelegramCore
++import Pasteboard
++import SaveToCameraRoll
++import UndoUI
++import ChatControllerInteraction
++
++extension ChatControllerImpl {
++    /// VoidGram's swipe menu; a reply goes through `setupReply` as a plain swipe does.
++    func ayuPerformSwipeMenu(action: ChatControllerAyuSwipeAction, messages: [EngineRawMessage]) {
++        let presentationData = self.context.sharedContext.currentPresentationData.with { $0 }
++        let ru = presentationData.strings.baseLanguageCode.hasPrefix("ru")
++        let context = self.context
++        switch action {
++        case .reply:
++            break
++        case .forward:
++            self.forwardMessages(messages: messages, options: nil, resetCurrent: false)
++        case .copy:
++            guard let message = messages.first(where: { !$0.text.isEmpty }) else {
++                return
++            }
++            let entities = message.attributes.compactMap({ $0 as? TextEntitiesMessageAttribute }).first?.entities
++            storeMessageTextInPasteboard(message.text, entities: entities)
++            self.present(UndoOverlayController(presentationData: presentationData, content: .copy(text: presentationData.strings.Conversation_MessageCopied), elevatedLayout: false, animateInAsReplacement: false, action: { _ in return false }), in: .current)
++        case .save:
++            var items: [(EngineRawMessage, AnyMediaReference)] = []
++            for message in messages {
++                for media in message.media {
++                    if media is TelegramMediaImage {
++                        items.append((message, .message(message: MessageReference(message), media: media)))
++                    } else if let file = media as? TelegramMediaFile, file.isVideo, !file.isInstantVideo {
++                        items.append((message, .message(message: MessageReference(message), media: media)))
++                    }
++                }
++            }
++            if items.isEmpty {
++                return
++            }
++            let total = items.count
++            var finished = 0
++            for (message, reference) in items {
++                let _ = (saveToCameraRoll(context: context, userLocation: .peer(message.id.peerId), mediaReference: reference)
++                |> deliverOnMainQueue).startStandalone(completed: { [weak self] in
++                    finished += 1
++                    if finished == total {
++                        let text = total == 1 ? (ru ? "Сохранено в галерею" : "Saved to gallery") : (ru ? "Сохранено в галерею: \(total)" : "\(total) items saved to gallery")
++                        self?.present(UndoOverlayController(presentationData: presentationData, content: .mediaSaved(text: text), elevatedLayout: false, animateInAsReplacement: false, action: { _ in return true }), in: .current)
++                    }
++                })
++            }
++        case .favorite:
++            guard let file = messages.flatMap({ $0.media }).compactMap({ $0 as? TelegramMediaFile }).first(where: { $0.isSticker || $0.isAnimatedSticker || $0.isVideoSticker }) else {
++                return
++            }
++            let _ = (context.engine.stickers.toggleStickerSaved(file: file, saved: true)
++            |> deliverOnMainQueue).startStandalone(next: { [weak self] _ in
++                self?.present(UndoOverlayController(presentationData: presentationData, content: .sticker(context: context, file: file, loop: true, title: nil, text: presentationData.strings.Conversation_StickerAddedToFavorites, undoText: nil, customAction: nil), elevatedLayout: false, action: { _ in return false }), in: .current)
++            })
++        }
++    }
++}
