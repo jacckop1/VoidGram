@@ -1,0 +1,681 @@
+diff --git a/submodules/ChatListUI/Sources/Node/ChatListItem.swift b/submodules/ChatListUI/Sources/Node/ChatListItem.swift
+index d58fd8fd..f75159bb 100644
+--- a/submodules/ChatListUI/Sources/Node/ChatListItem.swift
++++ b/submodules/ChatListUI/Sources/Node/ChatListItem.swift
+@@ -1093,6 +1093,14 @@ private final class ChatListMediaPreviewNode: ASDisplayNode {
+ private let telegramCodeRegex = try? NSRegularExpression(pattern: "(?<=: )\\b\\d{5,8}\\b(?=\\.)", options: [])
+ private let loginCodeRegex = try? NSRegularExpression(pattern: "\\b\\d{5,8}\\b", options: [])
+ 
++/// A sponsor's own name style (font and colour) on their title in the list.
++private func ayuStyledTitle(_ string: NSAttributedString, peer: EnginePeer?) -> NSAttributedString {
++    guard let peer, let style = AyuSupportersManager.shared.nameStyle(peerId: peer.id.id._internalGetInt64Value()) else {
++        return string
++    }
++    return AyuNameStyling.apply(to: string, variant: style.font, color: style.color)
++}
++
+ public class ChatListItemNode: ItemListRevealOptionsItemNode {
+     final class TopicItemNode: ASDisplayNode {
+         let topicTitleNode: TextNode
+@@ -3360,7 +3368,7 @@ public class ChatListItemNode: ItemListRevealOptionsItemNode {
+                                 } else {
+                                     textColor = theme.titleColor
+                                 }
+-                                titleAttributedString = NSAttributedString(string: displayTitle, font: titleFont, textColor: textColor)
++                                titleAttributedString = ayuStyledTitle(NSAttributedString(string: displayTitle, font: titleFont, textColor: textColor), peer: itemPeer.chatOrMonoforumMainPeer)
+                                 
+                                 if case let .channel(channel) = itemPeer.peer, channel.flags.contains(.isMonoforum) {
+                                     titleBadgeText = item.presentationData.strings.ChatList_MonoforumLabel
+@@ -3398,7 +3406,7 @@ public class ChatListItemNode: ItemListRevealOptionsItemNode {
+                             titleBadgeText = badge
+                             isAyuTitleBadge = true
+                         }
+-                        titleAttributedString = NSAttributedString(string: displayTitle, font: titleFont, textColor: textColor)
++                        titleAttributedString = ayuStyledTitle(NSAttributedString(string: displayTitle, font: titleFont, textColor: textColor), peer: itemPeer.chatOrMonoforumMainPeer)
+                     }
+                 case .group:
+                     titleAttributedString = NSAttributedString(string: item.presentationData.strings.ChatList_ArchivedChatsTitle, font: titleFont, textColor: theme.titleColor)
+diff --git a/submodules/Display/Source/AyuAvatarFrames.swift b/submodules/Display/Source/AyuAvatarFrames.swift
+index bb2febb5..f241b09d 100644
+--- a/submodules/Display/Source/AyuAvatarFrames.swift
++++ b/submodules/Display/Source/AyuAvatarFrames.swift
+@@ -142,6 +142,12 @@ public final class AyuAvatarFrameView: UIView {
+             self.setNeedsLayout()
+         }
+     }
++    /// The sponsor's own size for the frame, 0.5 to 1.6; the avatar it surrounds stays as it is.
++    public var userScale: CGFloat = 1.0 {
++        didSet {
++            self.setNeedsLayout()
++        }
++    }
+ 
+     private let contentLayer = CALayer()
+ 
+@@ -154,7 +160,7 @@ public final class AyuAvatarFrameView: UIView {
+ 
+     public override func layoutSubviews() {
+         super.layoutSubviews()
+-        let scale = self.fitsInside ? 1.0 : self.extent
++        let scale = (self.fitsInside ? 1.0 : self.extent) * min(1.6, max(0.5, self.userScale))
+         CATransaction.begin()
+         CATransaction.setDisableActions(true)
+         self.contentLayer.bounds = CGRect(x: 0.0, y: 0.0, width: self.bounds.width * scale, height: self.bounds.height * scale)
+diff --git a/submodules/Display/Source/AyuNameStyling.swift b/submodules/Display/Source/AyuNameStyling.swift
+new file mode 100644
+index 00000000..7e770405
+--- /dev/null
++++ b/submodules/Display/Source/AyuNameStyling.swift
+@@ -0,0 +1,55 @@
++import Foundation
++import UIKit
++
++/// A sponsor's name style on a name that is already laid out as an attributed string: the font
++/// variant and colour they chose. `variant` is 0 regular, 1 bold, 2 italic, 3 monospace and 4
++/// monospace italic.
++public enum AyuNameStyling {
++    public static func font(_ base: UIFont, variant: Int) -> UIFont {
++        let size = base.pointSize
++        switch variant {
++        case 1:
++            return UIFont.systemFont(ofSize: size, weight: .bold)
++        case 2:
++            return UIFont.italicSystemFont(ofSize: size)
++        case 3:
++            return UIFont.monospacedSystemFont(ofSize: size, weight: .medium)
++        case 4:
++            // SF Mono has no italic, so the upright letters are slanted by 14 degrees.
++            let mono = UIFont.monospacedSystemFont(ofSize: size, weight: .medium)
++            let slant = CGAffineTransform(a: 1.0, b: 0.0, c: CGFloat(tan(14.0 * Double.pi / 180.0)), d: 1.0, tx: 0.0, ty: 0.0)
++            return UIFont(descriptor: mono.fontDescriptor.withMatrix(slant), size: size)
++        default:
++            return base
++        }
++    }
++
++    public static func apply(to string: NSAttributedString, variant: Int, color: UInt32?) -> NSAttributedString {
++        if string.length == 0 || (variant == 0 && color == nil) {
++            return string
++        }
++        let result = NSMutableAttributedString(attributedString: string)
++        let full = NSRange(location: 0, length: result.length)
++        result.enumerateAttribute(.font, in: full, options: [], using: { value, range, _ in
++            if let base = value as? UIFont {
++                result.addAttribute(.font, value: font(base, variant: variant), range: range)
++            }
++        })
++        if let color {
++            result.addAttribute(.foregroundColor, value: UIColor(rgb: color), range: full)
++        }
++        return result
++    }
++
++    /// The light a glowing name gives off, on the layer that draws it.
++    public static func setGlow(on layer: CALayer, color: UInt32?) {
++        if let color {
++            layer.shadowColor = UIColor(rgb: color).cgColor
++            layer.shadowOpacity = 0.9
++            layer.shadowRadius = 5.0
++            layer.shadowOffset = .zero
++        } else {
++            layer.shadowOpacity = 0.0
++        }
++    }
++}
+diff --git a/submodules/SettingsUI/Sources/AyuAvatarFramePicker.swift b/submodules/SettingsUI/Sources/AyuAvatarFramePicker.swift
+index ff0df29b..6f5b5b4c 100644
+--- a/submodules/SettingsUI/Sources/AyuAvatarFramePicker.swift
++++ b/submodules/SettingsUI/Sources/AyuAvatarFramePicker.swift
+@@ -5,8 +5,12 @@ import SwiftSignalKit
+ import TelegramCore
+ import AccountContext
+ 
+-/// A sponsor's choice of avatar frame: every frame in the server's catalog, playing around a circle.
+-/// The choice goes to the badge server, so everyone on VoidGram sees it in the profile.
++/// The colours a sponsor can give their name; nil keeps the theme's own.
++private let ayuNameColors: [UInt32?] = [nil, 0xFF453A, 0xFF9F0A, 0xFFD60A, 0x32D74B, 0x64D2FF, 0x0A84FF, 0x8E5CF7, 0xFF6BD6, 0xFFFFFF]
++
++/// A sponsor's look: the avatar frame (every frame in the server's catalog, playing around a
++/// circle), how large it is drawn, and the style of their name. A preview on top shows the choice
++/// before it is saved; Done sends it to the badge server, so everyone on VoidGram sees it.
+ private final class AyuAvatarFramePickerController: UIViewController, UICollectionViewDataSource, UICollectionViewDelegateFlowLayout {
+     private final class Cell: UICollectionViewCell {
+         let frameView = AyuAvatarFrameView()
+@@ -46,19 +50,55 @@ private final class AyuAvatarFramePickerController: UIViewController, UICollecti
+     private let context: AccountContext
+     private let ru: Bool
+     private var entries: [AyuAvatarFrames.Entry] = []
+-    private var selected: String?
++    private var selectedFrame: String?
++    private var scale: CGFloat
++    private var nameFont: Int
++    private var nameColor: UInt32?
++    private var nameGlow: Bool
++    private let initialFrame: String?
++    private let initialScale: CGFloat
++    private let initialStyle: AyuNameStyle?
+     private var isSaving = false
+     private let disposable = MetaDisposable()
+     private var collectionView: UICollectionView?
+ 
++    private let header = UIView()
++    private let previewArea = UIView()
++    private let previewCircle = UIView()
++    private let previewFrame = AyuAvatarFrameView()
++    private let previewName = UILabel()
++    private let scaleTitle = UILabel()
++    private let scaleSlider = UISlider()
++    private let fontControl = UISegmentedControl(items: [])
++    private let colorRow = UIStackView()
++    private var colorButtons: [UIButton] = []
++    private let glowTitle = UILabel()
++    private let glowSwitch = UISwitch()
++
++    private static let headerHeight: CGFloat = 392.0
++
+     init(context: AccountContext, ru: Bool) {
+         self.context = context
+         self.ru = ru
+-        self.selected = AyuSupportersManager.shared.avatarFrame(peerId: context.account.peerId.id._internalGetInt64Value())
++        let peerId = context.account.peerId.id._internalGetInt64Value()
++        let frame = AyuSupportersManager.shared.avatarFrame(peerId: peerId)
++        let scale = CGFloat(AyuSupportersManager.shared.avatarFrameScale(peerId: peerId))
++        let style = AyuSupportersManager.shared.nameStyle(peerId: peerId)
++        self.selectedFrame = frame
++        self.initialFrame = frame
++        self.scale = scale
++        self.initialScale = scale
++        self.initialStyle = style
++        self.nameFont = style?.font ?? 0
++        self.nameColor = style?.color
++        self.nameGlow = style?.glow ?? false
+         super.init(nibName: nil, bundle: nil)
+-        self.title = ru ? "Рамка аватарки" : "Avatar frame"
++        self.title = ru ? "Рамка и ник" : "Frame and name"
+         self.navigationItem.leftBarButtonItem = UIBarButtonItem(title: ru ? "Закрыть" : "Close", style: .plain, target: self, action: #selector(self.closePressed))
+-        self.navigationItem.rightBarButtonItem = UIBarButtonItem(title: ru ? "Снять" : "Remove", style: .plain, target: self, action: #selector(self.removePressed))
++        self.navigationItem.rightBarButtonItems = [
++            UIBarButtonItem(title: ru ? "Готово" : "Done", style: .done, target: self, action: #selector(self.donePressed)),
++            UIBarButtonItem(title: ru ? "Без рамки" : "No frame", style: .plain, target: self, action: #selector(self.removePressed))
++        ]
+     }
+ 
+     required init?(coder: NSCoder) {
+@@ -78,9 +118,16 @@ private final class AyuAvatarFramePickerController: UIViewController, UICollecti
+         collectionView.dataSource = self
+         collectionView.delegate = self
+         collectionView.register(Cell.self, forCellWithReuseIdentifier: "frame")
++        collectionView.contentInset = UIEdgeInsets(top: AyuAvatarFramePickerController.headerHeight, left: 0.0, bottom: 0.0, right: 0.0)
++        collectionView.scrollIndicatorInsets = collectionView.contentInset
++        collectionView.contentOffset = CGPoint(x: 0.0, y: -AyuAvatarFramePickerController.headerHeight)
+         self.view.addSubview(collectionView)
+         self.collectionView = collectionView
+ 
++        self.buildHeader()
++        self.view.addSubview(self.header)
++        self.updatePreview()
++
+         AyuAvatarFrames.catalog(completion: { [weak self] entries in
+             guard let self else {
+                 return
+@@ -93,12 +140,140 @@ private final class AyuAvatarFramePickerController: UIViewController, UICollecti
+         })
+     }
+ 
++    private func buildHeader() {
++        self.header.backgroundColor = .systemBackground
++
++        self.previewArea.clipsToBounds = true
++        self.header.addSubview(self.previewArea)
++        self.previewCircle.backgroundColor = UIColor(white: 0.5, alpha: 0.35)
++        self.previewArea.addSubview(self.previewCircle)
++        self.previewArea.addSubview(self.previewFrame)
++
++        self.previewName.textAlignment = .center
++        self.header.addSubview(self.previewName)
++
++        self.scaleTitle.font = Font.regular(14.0)
++        self.scaleTitle.textColor = .secondaryLabel
++        self.header.addSubview(self.scaleTitle)
++        self.scaleSlider.minimumValue = 0.5
++        self.scaleSlider.maximumValue = 1.6
++        self.scaleSlider.value = Float(self.scale)
++        self.scaleSlider.addTarget(self, action: #selector(self.scaleChanged), for: .valueChanged)
++        self.header.addSubview(self.scaleSlider)
++
++        let fontTitles = self.ru ? ["Обычный", "Жирный", "Курсив", "Моно", "Моно/к"] : ["Regular", "Bold", "Italic", "Mono", "Mono/i"]
++        for (index, title) in fontTitles.enumerated() {
++            self.fontControl.insertSegment(withTitle: title, at: index, animated: false)
++        }
++        self.fontControl.setTitleTextAttributes([.font: UIFont.systemFont(ofSize: 12.0)], for: .normal)
++        self.fontControl.selectedSegmentIndex = self.nameFont
++        self.fontControl.addTarget(self, action: #selector(self.fontChanged), for: .valueChanged)
++        self.header.addSubview(self.fontControl)
++
++        self.colorRow.axis = .horizontal
++        self.colorRow.distribution = .equalSpacing
++        self.colorRow.alignment = .center
++        for (index, color) in ayuNameColors.enumerated() {
++            let button = UIButton(type: .custom)
++            button.tag = index
++            button.layer.cornerRadius = 15.0
++            button.layer.borderWidth = 2.0
++            button.backgroundColor = color.map { UIColor(rgb: $0) } ?? UIColor(white: 0.5, alpha: 0.25)
++            if color == nil {
++                button.setTitle("∅", for: .normal)
++                button.setTitleColor(.label, for: .normal)
++            }
++            button.addTarget(self, action: #selector(self.colorPressed(_:)), for: .touchUpInside)
++            button.widthAnchor.constraint(equalToConstant: 30.0).isActive = true
++            button.heightAnchor.constraint(equalToConstant: 30.0).isActive = true
++            self.colorRow.addArrangedSubview(button)
++            self.colorButtons.append(button)
++        }
++        self.header.addSubview(self.colorRow)
++
++        self.glowTitle.font = Font.regular(16.0)
++        self.glowTitle.text = self.ru ? "Свечение ника в профиле" : "Name glow in the profile"
++        self.header.addSubview(self.glowTitle)
++        self.glowSwitch.isOn = self.nameGlow
++        self.glowSwitch.addTarget(self, action: #selector(self.glowChanged), for: .valueChanged)
++        self.header.addSubview(self.glowSwitch)
++    }
++
++    override func viewDidLayoutSubviews() {
++        super.viewDidLayoutSubviews()
++        let width = self.view.bounds.width
++        let top = self.view.safeAreaInsets.top
++        self.header.frame = CGRect(x: 0.0, y: top, width: width, height: AyuAvatarFramePickerController.headerHeight)
++        self.collectionView?.contentInset.top = AyuAvatarFramePickerController.headerHeight + top
++        self.collectionView?.scrollIndicatorInsets = self.collectionView?.contentInset ?? .zero
++
++        let side: CGFloat = 16.0
++        self.previewArea.frame = CGRect(x: 0.0, y: 0.0, width: width, height: 190.0)
++        let avatar: CGFloat = 88.0
++        let center = CGPoint(x: width / 2.0, y: 95.0)
++        self.previewCircle.frame = CGRect(x: center.x - avatar / 2.0, y: center.y - avatar / 2.0, width: avatar, height: avatar)
++        self.previewCircle.layer.cornerRadius = avatar / 2.0
++        let frameSide = avatar / AyuAvatarFrames.avatarFraction
++        self.previewFrame.bounds = CGRect(x: 0.0, y: 0.0, width: frameSide, height: frameSide)
++        self.previewFrame.center = center
++        self.previewName.frame = CGRect(x: side, y: 192.0, width: width - side * 2.0, height: 30.0)
++        self.scaleTitle.frame = CGRect(x: side, y: 230.0, width: width - side * 2.0, height: 18.0)
++        self.scaleSlider.frame = CGRect(x: side, y: 250.0, width: width - side * 2.0, height: 30.0)
++        self.fontControl.frame = CGRect(x: side, y: 290.0, width: width - side * 2.0, height: 32.0)
++        self.colorRow.frame = CGRect(x: side, y: 330.0, width: width - side * 2.0, height: 30.0)
++        self.glowTitle.frame = CGRect(x: side, y: 360.0, width: width - side * 2.0 - 70.0, height: 31.0)
++        self.glowSwitch.frame.origin = CGPoint(x: width - side - self.glowSwitch.frame.width, y: 360.0)
++    }
++
++    private var currentStyle: AyuNameStyle? {
++        if self.nameFont == 0 && self.nameColor == nil && !self.nameGlow {
++            return nil
++        }
++        return AyuNameStyle(font: self.nameFont, color: self.nameColor, glow: self.nameGlow)
++    }
++
++    private func updatePreview() {
++        self.previewFrame.userScale = self.scale
++        self.previewFrame.setFrameId(self.selectedFrame)
++        self.scaleTitle.text = (self.ru ? "Размер рамки: " : "Frame size: ") + "\(Int((self.scale * 100.0).rounded()))%"
++
++        let base = NSAttributedString(string: self.ru ? "Ваше имя" : "Your name", attributes: [.font: UIFont.systemFont(ofSize: 22.0, weight: .semibold), .foregroundColor: UIColor.label])
++        self.previewName.attributedText = AyuNameStyling.apply(to: base, variant: self.nameFont, color: self.nameColor)
++        AyuNameStyling.setGlow(on: self.previewName.layer, color: self.nameGlow ? (self.nameColor ?? 0x8E5CF7) : nil)
++
++        for (index, button) in self.colorButtons.enumerated() {
++            button.layer.borderColor = (ayuNameColors[index] == self.nameColor ? UIColor.label : UIColor.clear).cgColor
++        }
++    }
++
++    @objc private func scaleChanged() {
++        self.scale = CGFloat(self.scaleSlider.value)
++        self.updatePreview()
++    }
++
++    @objc private func fontChanged() {
++        self.nameFont = self.fontControl.selectedSegmentIndex
++        self.updatePreview()
++    }
++
++    @objc private func colorPressed(_ button: UIButton) {
++        self.nameColor = ayuNameColors[button.tag]
++        self.updatePreview()
++    }
++
++    @objc private func glowChanged() {
++        self.nameGlow = self.glowSwitch.isOn
++        self.updatePreview()
++    }
++
+     @objc private func closePressed() {
+         self.dismiss(animated: true)
+     }
+ 
+     @objc private func removePressed() {
+-        self.save(nil)
++        self.selectedFrame = nil
++        self.updatePreview()
++        self.collectionView?.reloadData()
+     }
+ 
+     private func show(_ text: String) {
+@@ -107,20 +282,44 @@ private final class AyuAvatarFramePickerController: UIViewController, UICollecti
+         self.present(alert, animated: true)
+     }
+ 
+-    private func save(_ id: String?) {
++    @objc private func donePressed() {
+         guard !self.isSaving else {
+             return
+         }
+-        self.isSaving = true
+-        let body: [String: Any] = ["frame": id.map { $0 as Any } ?? (NSNull() as Any)]
+-        self.disposable.set((AyuBadgeServer.post(account: self.context.account, route: "frame", body: body, ru: self.ru)
+-        |> deliverOnMainQueue).startStrict(next: { [weak self] _ in
+-            guard let self else {
+-                return
++        let roundedScale = (self.scale * 100.0).rounded() / 100.0
++        var steps: [(route: String, body: [String: Any])] = []
++        if self.selectedFrame != self.initialFrame || (self.selectedFrame != nil && abs(self.scale - self.initialScale) > 0.004) {
++            var body: [String: Any] = ["frame": self.selectedFrame.map { $0 as Any } ?? (NSNull() as Any)]
++            if self.selectedFrame != nil {
++                body["scale"] = Double(roundedScale)
++            }
++            steps.append((route: "frame", body: body))
++        }
++        let style = self.currentStyle
++        if style != self.initialStyle {
++            var value: Any = NSNull()
++            if let style {
++                var dictionary: [String: Any] = ["font": style.font, "glow": style.glow]
++                if let color = style.color {
++                    dictionary["color"] = String(format: "#%06X", color)
++                }
++                value = dictionary
+             }
++            steps.append((route: "style", body: ["style": value]))
++        }
++        self.isSaving = true
++        self.run(steps: steps, index: 0)
++    }
++
++    private func run(steps: [(route: String, body: [String: Any])], index: Int) {
++        if index >= steps.count {
+             self.isSaving = false
+-            self.selected = id
+             self.dismiss(animated: true)
++            return
++        }
++        self.disposable.set((AyuBadgeServer.post(account: self.context.account, route: steps[index].route, body: steps[index].body, ru: self.ru)
++        |> deliverOnMainQueue).startStrict(next: { [weak self] _ in
++            self?.run(steps: steps, index: index + 1)
+         }, error: { [weak self] text in
+             guard let self else {
+                 return
+@@ -139,7 +338,7 @@ private final class AyuAvatarFramePickerController: UIViewController, UICollecti
+         let entry = self.entries[indexPath.item]
+         cell.frameView.setFrameId(entry.id)
+         cell.title.text = self.ru ? entry.titleRu : entry.titleEn
+-        cell.title.textColor = entry.id == self.selected ? UIColor.systemBlue : UIColor.label
++        cell.title.textColor = entry.id == self.selectedFrame ? UIColor.systemBlue : UIColor.label
+         return cell
+     }
+ 
+@@ -157,7 +356,9 @@ private final class AyuAvatarFramePickerController: UIViewController, UICollecti
+     }
+ 
+     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
+-        self.save(self.entries[indexPath.item].id)
++        self.selectedFrame = self.entries[indexPath.item].id
++        self.updatePreview()
++        collectionView.reloadData()
+     }
+ }
+ 
+diff --git a/submodules/SettingsUI/Sources/AyuCustomizationController.swift b/submodules/SettingsUI/Sources/AyuCustomizationController.swift
+index e63ac0a6..fdfdd944 100644
+--- a/submodules/SettingsUI/Sources/AyuCustomizationController.swift
++++ b/submodules/SettingsUI/Sources/AyuCustomizationController.swift
+@@ -252,7 +252,7 @@ func ayuCustomizationController(context: AccountContext) -> ViewController {
+         entries.append(.link(3, 31, symbol("crown.fill", 0xFFCC00), ru ? "Мой бейдж" : "My badge", AyuCustomization.myBadge.isEmpty ? (ru ? "нет" : "none") : AyuCustomization.myBadge))
+         entries.append(.link(3, 32, symbol("plus.circle.fill", 0x34C759), ru ? "Добавить бейдж чату" : "Add a chat badge", ""))
+         if AyuSupportersManager.shared.canChooseAvatarFrame(peerId: context.account.peerId.id._internalGetInt64Value()) {
+-            entries.append(.link(3, 33, symbol("circle.dashed", 0xFF9500), ru ? "Рамка аватарки" : "Avatar frame", ""))
++            entries.append(.link(3, 33, symbol("circle.dashed", 0xFF9500), ru ? "Рамка и ник" : "Frame and name", AyuSupportersManager.shared.avatarFrame(peerId: context.account.peerId.id._internalGetInt64Value()) ?? (ru ? "нет" : "none")))
+         }
+         badgeRows = [:]
+         var nextId: Int32 = 40
+diff --git a/submodules/SettingsUI/Sources/AyuSettingsRows.swift b/submodules/SettingsUI/Sources/AyuSettingsRows.swift
+index 3be9fcac..2aafb44c 100644
+--- a/submodules/SettingsUI/Sources/AyuSettingsRows.swift
++++ b/submodules/SettingsUI/Sources/AyuSettingsRows.swift
+@@ -134,7 +134,7 @@ enum AyuSettingsEntry: ItemListNodeEntry {
+ /// which the app reports to Telegram's servers.
+ /// Raised with every VoidGram update.
+ func ayuAppVersion() -> String {
+-    return "27.8.1"
++    return "27.8.2"
+ }
+ 
+ /// The version with the build number of this IPA, as the settings header shows it.
+diff --git a/submodules/TelegramCore/Sources/AyuGram/AyuInterfaceSettings.swift b/submodules/TelegramCore/Sources/AyuGram/AyuInterfaceSettings.swift
+index 396c8254..b68f5e52 100644
+--- a/submodules/TelegramCore/Sources/AyuGram/AyuInterfaceSettings.swift
++++ b/submodules/TelegramCore/Sources/AyuGram/AyuInterfaceSettings.swift
+@@ -213,6 +213,33 @@ public struct AyuProfileCosmetics: Equatable {
+     }
+ }
+ 
++/// How a sponsor styles their own name, for everyone on VoidGram ("nameStyle" in the registry).
++public struct AyuNameStyle: Equatable {
++    /// 0 regular, 1 bold, 2 italic, 3 monospace, 4 bold italic.
++    public let font: Int
++    /// 0xRRGGBB, or nil for the theme's own colour.
++    public let color: UInt32?
++    public let glow: Bool
++
++    public init(font: Int, color: UInt32?, glow: Bool) {
++        self.font = font
++        self.color = color
++        self.glow = glow
++    }
++
++    init?(json: [String: Any]) {
++        let font = (json["font"] as? NSNumber)?.intValue ?? 0
++        guard (0 ... 4).contains(font) else {
++            return nil
++        }
++        var color: UInt32?
++        if let hex = json["color"] as? String, hex.count == 7, hex.hasPrefix("#"), let value = UInt32(hex.dropFirst(), radix: 16) {
++            color = value
++        }
++        self.init(font: font, color: color, glow: (json["glow"] as? Bool) == true)
++    }
++}
++
+ public final class AyuSupportersManager {
+     public static let shared = AyuSupportersManager()
+     private let lock = NSLock()
+@@ -241,6 +268,9 @@ public final class AyuSupportersManager {
+     private var ownerBubbleFrame = true
+     /// The avatar frame each sponsor chose ("frame" in the registry).
+     private var avatarFrames: [Int64: String] = [:]
++    /// How large each sponsor draws their frame ("frameScale"), and how they style their name.
++    private var avatarFrameScales: [Int64: Double] = [:]
++    private var nameStyles: [Int64: AyuNameStyle] = [:]
+     private static let dailyTitle = "(name) — удача дня"
+     private var isRefreshing = false
+     private var lastRegistryRefresh: CFAbsoluteTime = 0.0
+@@ -312,6 +342,23 @@ public final class AyuSupportersManager {
+         return frame != nil && self.canChooseAvatarFrame(peerId: peerId) ? frame : nil
+     }
+ 
++    /// How large a peer's frame is drawn: 1 is the frame's own size.
++    public func avatarFrameScale(peerId: Int64) -> Double {
++        self.lock.lock()
++        defer { self.lock.unlock() }
++        return min(1.6, max(0.5, self.avatarFrameScales[peerId] ?? 1.0))
++    }
++
++    /// The name style a sponsor or the owner chose; unlocked builds only.
++    public func nameStyle(peerId: Int64) -> AyuNameStyle? {
++        guard AyuFeatureGate.isUnlocked, self.canChooseAvatarFrame(peerId: peerId) else {
++            return nil
++        }
++        self.lock.lock()
++        defer { self.lock.unlock() }
++        return self.nameStyles[peerId]
++    }
++
+     /// Sponsors (a badge the owner gave, not a timed one) and the owner choose an avatar frame.
+     public func canChooseAvatarFrame(peerId: Int64) -> Bool {
+         return self.ownerPeerId == peerId || self.hasGrantedBadge(peerId: peerId)
+@@ -588,6 +635,8 @@ public final class AyuSupportersManager {
+         var gifts: [Int64: [AyuGrantedGift]] = [:]
+         var granters = Set<Int64>()
+         var avatarFrames: [Int64: String] = [:]
++        var avatarFrameScales: [Int64: Double] = [:]
++        var nameStyles: [Int64: AyuNameStyle] = [:]
+         var selfEditors = Set<Int64>()
+         var cosmetics: [Int64: AyuProfileCosmetics] = [:]
+         let now = Date().timeIntervalSince1970
+@@ -606,6 +655,12 @@ public final class AyuSupportersManager {
+             }
+             if let frame = badge["frame"] as? String, !frame.isEmpty {
+                 avatarFrames[id] = frame
++                if let scale = (badge["frameScale"] as? NSNumber)?.doubleValue, scale >= 0.5, scale <= 1.6 {
++                    avatarFrameScales[id] = scale
++                }
++            }
++            if let style = badge["nameStyle"] as? [String: Any], let value = AyuNameStyle(json: style) {
++                nameStyles[id] = value
+             }
+             if (badge["selfEdit"] as? Bool) == true {
+                 selfEditors.insert(id)
+@@ -652,7 +707,10 @@ public final class AyuSupportersManager {
+         self.ownerDaily = ownerDaily
+         self.ownerDocumentId = ownerDocumentId
+         self.ownerBubbleFrame = ownerBubbleFrame
++        let lookChanged = self.avatarFrames != avatarFrames || self.avatarFrameScales != avatarFrameScales || self.nameStyles != nameStyles
+         self.avatarFrames = avatarFrames
++        self.avatarFrameScales = avatarFrameScales
++        self.nameStyles = nameStyles
+         let giftsChanged = self.grantedGiftsByPeer != gifts
+         self.grantedGiftsByPeer = gifts
+         self.giftGranters = granters
+@@ -661,7 +719,7 @@ public final class AyuSupportersManager {
+         let cosmeticsChanged = self.profileCosmetics != cosmetics
+         self.profileCosmetics = cosmetics
+         self.lock.unlock()
+-        if cosmeticsChanged {
++        if cosmeticsChanged || lookChanged {
+             NotificationCenter.default.post(name: AyuSupportersManager.profileCosmeticsDidChange, object: nil)
+         }
+         if giftsChanged {
+diff --git a/submodules/TelegramUI/Components/Chat/ChatMessageBubbleItemNode/Sources/ChatMessageBubbleItemNode.swift b/submodules/TelegramUI/Components/Chat/ChatMessageBubbleItemNode/Sources/ChatMessageBubbleItemNode.swift
+index c43f231d..5e79e030 100644
+--- a/submodules/TelegramUI/Components/Chat/ChatMessageBubbleItemNode/Sources/ChatMessageBubbleItemNode.swift
++++ b/submodules/TelegramUI/Components/Chat/ChatMessageBubbleItemNode/Sources/ChatMessageBubbleItemNode.swift
+@@ -2802,7 +2802,7 @@ public class ChatMessageBubbleItemNode: ChatMessageItemView, ChatMessagePreviewI
+                 
+                 let inlineBotNameColor = messageTheme.accentTextColor
+                 
+-                let attributedString: NSAttributedString
++                var attributedString: NSAttributedString
+                 var rankBadgeString: NSAttributedString?
+                 var rankBadgeColor: UIColor?
+                 var boostBadgeString: NSAttributedString?
+@@ -2872,6 +2872,11 @@ public class ChatMessageBubbleItemNode: ChatMessageItemView, ChatMessagePreviewI
+                     attributedString = NSAttributedString(string: "", font: nameFont, textColor: inlineBotNameColor)
+                 }
+                 
++                // A sponsor's own name style on their name above the message.
++                if let author = effectiveAuthor, let ayuStyle = AyuSupportersManager.shared.nameStyle(peerId: author.id.id._internalGetInt64Value()) {
++                    attributedString = AyuNameStyling.apply(to: attributedString, variant: ayuStyle.font, color: ayuStyle.color)
++                }
++
+                 var credibilityIconWidth: CGFloat = 0.0
+                 if let (currentCredibilityIcon, _) = currentCredibilityIcon {
+                     credibilityIconWidth += 4.0
+diff --git a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoHeaderNode.swift b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoHeaderNode.swift
+index e9341ad7..93de27ac 100644
+--- a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoHeaderNode.swift
++++ b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoHeaderNode.swift
+@@ -432,8 +432,10 @@ final class PeerInfoHeaderNode: ASDisplayNode {
+     /// avatar container's origin is the avatar's centre, and its scale carries the frame along.
+     private func ayuUpdateAvatarFrame(peer: EnginePeer?, avatarSize: CGFloat) {
+         var frameId: String?
++        var frameScale = 1.0
+         if let peer, !self.isAvatarExpanded, self.context.account.network.ayuGhostMode.current.interface.showSupporterBadges {
+             frameId = AyuSupportersManager.shared.avatarFrame(peerId: peer.id.id._internalGetInt64Value())
++            frameScale = AyuSupportersManager.shared.avatarFrameScale(peerId: peer.id.id._internalGetInt64Value())
+         }
+         guard let frameId else {
+             self.ayuAvatarFrameView?.setFrameId(nil)
+@@ -450,6 +452,7 @@ final class PeerInfoHeaderNode: ASDisplayNode {
+         let side = avatarSize / AyuAvatarFrames.avatarFraction
+         view.bounds = CGRect(x: 0.0, y: 0.0, width: side, height: side)
+         view.center = CGPoint()
++        view.userScale = CGFloat(frameScale)
+         view.setFrameId(frameId)
+     }
+ 
+@@ -1520,9 +1523,19 @@ final class PeerInfoHeaderNode: ASDisplayNode {
+             titleConstrainedSize.width -= 60.0
+         }
+         
++        // A sponsor's own name style: the font, the colour and, drawn on the title's layer, the glow.
++        let ayuNameStyle = peer.flatMap { AyuSupportersManager.shared.nameStyle(peerId: $0.id.id._internalGetInt64Value()) }
++        let ayuStyled: (MultiScaleTextState.Attributes) -> MultiScaleTextState.Attributes = { attributes in
++            guard let style = ayuNameStyle else {
++                return attributes
++            }
++            return MultiScaleTextState.Attributes(font: AyuNameStyling.font(attributes.font, variant: style.font), color: style.color.map { UIColor(rgb: $0) } ?? attributes.color, shadowColor: attributes.shadowColor)
++        }
++        AyuNameStyling.setGlow(on: self.titleNode.layer, color: ayuNameStyle.flatMap { $0.glow ? ($0.color ?? 0xFFFFFF) : nil })
++
+         let titleNodeLayout = self.titleNode.updateLayout(text: titleStringText, states: [
+-            TitleNodeStateRegular: MultiScaleTextState(attributes: titleAttributes, constrainedSize: titleConstrainedSize),
+-            TitleNodeStateExpanded: MultiScaleTextState(attributes: smallTitleAttributes, constrainedSize: titleConstrainedSize)
++            TitleNodeStateRegular: MultiScaleTextState(attributes: ayuStyled(titleAttributes), constrainedSize: titleConstrainedSize),
++            TitleNodeStateExpanded: MultiScaleTextState(attributes: ayuStyled(smallTitleAttributes), constrainedSize: titleConstrainedSize)
+         ], mainState: TitleNodeStateRegular)
+         
+         var subtitleRatingSize: CGSize?
+diff --git a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreen.swift b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreen.swift
+index 79709ce8..ed0be90f 100644
+--- a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreen.swift
++++ b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreen.swift
+@@ -346,6 +346,7 @@ final class PeerInfoScreenNode: ViewControllerTracingNode, PeerInfoScreenNodePro
+     private var ayuAvatarBackdropDimView: UIView?
+     private var ayuAvatarBackdropKey: String?
+     private let ayuAvatarBackdropDisposable = MetaDisposable()
++    private var ayuRegistryObservers: [NSObjectProtocol] = []
+     private var ayuBackdropPresentationData: (base: PresentationTheme, data: PresentationData)?
+     
+     var state = PeerInfoState(
+@@ -2711,6 +2712,9 @@ final class PeerInfoScreenNode: ViewControllerTracingNode, PeerInfoScreenNodePro
+     }
+     
+     deinit {
++        for observer in self.ayuRegistryObservers {
++            NotificationCenter.default.removeObserver(observer)
++        }
+         self.dataDisposable?.dispose()
+         self.ayuAvatarBackdropDisposable.dispose()
+         self.walletStickersPreloadDisposable.dispose()
+@@ -2749,6 +2753,13 @@ final class PeerInfoScreenNode: ViewControllerTracingNode, PeerInfoScreenNodePro
+     
+     override func didLoad() {
+         super.didLoad()
++
++        // A rating, frame or number the owner or a sponsor just saved shows without reopening the profile.
++        self.ayuRegistryObservers = [AyuVerifiedRegistry.didChangeNotification, AyuSupportersManager.profileCosmeticsDidChange].map { name in
++            return NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main, using: { [weak self] _ in
++                self?.requestLayout(animated: false)
++            })
++        }
+                 
+         self.view.disablesInteractiveTransitionGestureRecognizerNow = { [weak self] in
+             if let strongSelf = self {

@@ -260,6 +260,7 @@
   "submodules/TelegramUI/Sources/AyuBackgroundKeepAlive.swift",
   "submodules/AuthorizationUI/Sources/AyuWelcomeView.swift",
   "submodules/Display/Source/AyuAvatarFrames.swift",
+  "submodules/Display/Source/AyuNameStyling.swift",
   "submodules/SettingsUI/Sources/AyuAvatarFramePicker.swift",
   "submodules/TelegramUI/Components/Chat/ChatMessageSwipeToReplyNode/Sources/AyuSwipeMenu.swift",
   "submodules/TelegramUI/Sources/ChatControllerAyuSwipeMenu.swift"
