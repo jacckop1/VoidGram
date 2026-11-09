@@ -47,7 +47,7 @@ index 4755a32f..76982f76 100644
                  self.bounds = bounds
  
                  self.updateAttachedAvatarNodeOffset(offset: translation.x, transition: .immediate)
-+                
++
 +                if let menu = self.ayuSwipeMenu {
 +                    let changed = menu.update(position: CGPoint(x: self.bounds.size.width + offset + 20.0, y: recognizer.firstLocation.y), verticalTranslation: recognizer.translation(in: self.view).y, progress: abs(translation.x) / swipeOffset)
 +                    if changed {
@@ -136,7 +136,7 @@ index 0b263956..43b22e99 100644
                  self.shadowNode.bounds = shadowBounds
  
                  self.updateAttachedAvatarNodeOffset(offset: translation.x, transition: .immediate)
-+                
++
 +                if let menu = self.ayuSwipeMenu {
 +                    let changed = menu.update(position: CGPoint(x: self.bounds.size.width + offset + 20.0, y: recognizer.firstLocation.y), verticalTranslation: recognizer.translation(in: self.view).y, progress: abs(translation.x) / swipeOffset)
 +                    if changed {
@@ -225,7 +225,7 @@ index a0727e86..692a2a8a 100644
                  self.bounds = bounds
  
                  self.updateAttachedAvatarNodeOffset(offset: translation.x, transition: .immediate)
-+                
++
 +                if let menu = self.ayuSwipeMenu {
 +                    let changed = menu.update(position: CGPoint(x: self.bounds.size.width + offset + 20.0, y: recognizer.firstLocation.y), verticalTranslation: recognizer.translation(in: self.view).y, progress: abs(translation.x) / swipeOffset)
 +                    if changed {
@@ -314,7 +314,7 @@ index a34811ac..0cbc0f43 100644
                  self.bounds = bounds
  
                  self.updateAttachedAvatarNodeOffset(offset: translation.x, transition: .immediate)
-+                
++
 +                if let menu = self.ayuSwipeMenu {
 +                    let changed = menu.update(position: CGPoint(x: self.bounds.size.width + offset + 20.0, y: recognizer.firstLocation.y), verticalTranslation: recognizer.translation(in: self.view).y, progress: abs(translation.x) / swipeOffset)
 +                    if changed {

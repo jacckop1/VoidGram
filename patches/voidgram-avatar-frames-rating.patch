@@ -677,7 +677,7 @@ index 89bdf502..0e01ba0d 100644
 +        view.center = CGPoint()
 +        view.setFrameId(frameId)
 +    }
-+    
++
      deinit {
          self.emojiStatusPackDisposable.dispose()
      }

@@ -504,7 +504,7 @@ index 91ff4cff..5e622fdf 100644
 +            self.ayuGlowLayer = nil
 +            glowLayer.removeFromSuperlayer()
 +        }
-+        
++
          if let iconView = self.iconView {
              animation.animator.updateFrame(layer: iconView.layer, frame: layout.imageFrame, completion: nil)
              
