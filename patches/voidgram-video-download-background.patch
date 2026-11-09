@@ -1,5 +1,5 @@
 diff --git a/submodules/Display/Source/AyuMediaSettings.swift b/submodules/Display/Source/AyuMediaSettings.swift
-index b40d37a6a2..4ac0d8865f 100644
+index b40d37a6a2..77d642ca2a 100644
 --- a/submodules/Display/Source/AyuMediaSettings.swift
 +++ b/submodules/Display/Source/AyuMediaSettings.swift
 @@ -127,6 +127,34 @@ public enum AyuMediaSettings {
@@ -28,9 +28,9 @@ index b40d37a6a2..4ac0d8865f 100644
 +    // MARK: Background
 +
 +    /// Keeps the app running in the background with silent, mixable audio, so local notifications
-+    /// keep arriving without push. Other apps' sound is not interrupted, no player is shown.
++    /// keep arriving without push. Other apps' sound is not interrupted, no player is shown. On by default.
 +    public static var backgroundKeepAlive: Bool {
-+        get { return !AyuDecoyMode.isActive && UserDefaults.standard.bool(forKey: key("backgroundKeepAlive")) }
++        get { return !AyuDecoyMode.isActive && (UserDefaults.standard.object(forKey: key("backgroundKeepAlive")) as? Bool ?? true) }
 +        set { set(newValue, "backgroundKeepAlive") }
 +    }
 +
@@ -104,7 +104,7 @@ index ad60d4dfd8..2450ec24be 100644
          if id == 22 { UserDefaults.standard.set(value, forKey: "ayu.extra.notifyEdited"); return }
          if let key = [2: "groupByChat", 3: "avatars", 4: "actions", 11: "quietHours", 23: "filterEnabled"][Int(id)] {
 diff --git a/submodules/SettingsUI/Sources/AyuSettingsRows.swift b/submodules/SettingsUI/Sources/AyuSettingsRows.swift
-index e00933af54..9af412e2f9 100644
+index e00933af54..aa6466bf0f 100644
 --- a/submodules/SettingsUI/Sources/AyuSettingsRows.swift
 +++ b/submodules/SettingsUI/Sources/AyuSettingsRows.swift
 @@ -134,7 +134,7 @@ enum AyuSettingsEntry: ItemListNodeEntry {
@@ -112,12 +112,12 @@ index e00933af54..9af412e2f9 100644
  /// Raised with every VoidGram update.
  func ayuAppVersion() -> String {
 -    return "27.6.9"
-+    return "27.7.0"
++    return "27.7.1"
  }
  
  /// The version with the build number of this IPA, as the settings header shows it.
 diff --git a/submodules/TelegramUI/Components/Chat/ChatInputMessageAccessoryPanel/Sources/ChatInputMessageAccessoryPanel.swift b/submodules/TelegramUI/Components/Chat/ChatInputMessageAccessoryPanel/Sources/ChatInputMessageAccessoryPanel.swift
-index 95a9ccb7f0..b6bd241d8e 100644
+index 95a9ccb7f0..79ec8c937d 100644
 --- a/submodules/TelegramUI/Components/Chat/ChatInputMessageAccessoryPanel/Sources/ChatInputMessageAccessoryPanel.swift
 +++ b/submodules/TelegramUI/Components/Chat/ChatInputMessageAccessoryPanel/Sources/ChatInputMessageAccessoryPanel.swift
 @@ -269,11 +269,27 @@ public final class ChatInputMessageAccessoryPanel: Component {
@@ -148,7 +148,16 @@ index 95a9ccb7f0..b6bd241d8e 100644
      }
      
      let context: AccountContext
-@@ -721,7 +737,7 @@ public final class ChatInputMessageAccessoryPanel: Component {
+@@ -367,6 +383,8 @@ public final class ChatInputMessageAccessoryPanel: Component {
+         
+         private var inlineTextStarImage: UIImage?
+         private var visualQuoteImageNode: TransformImageNode?
++        /// VoidGram: the green download icon of the "Download video" panel.
++        private var ayuDownloadIconView: UIImageView?
+         private var visualQuoteImageKey: (EngineMessage.Id, VisualQuoteRegion)?
+         private var inlineTextTonImage: (UIImage, UIColor)?
+         
+@@ -721,7 +739,7 @@ public final class ChatInputMessageAccessoryPanel: Component {
                  messageIds = self.deckMessageIds.isEmpty ? [reply.id] : [self.deckMessageIds[self.deckActiveIndex]]
              case let .forward(forward):
                  messageIds = forward.messageIds
@@ -157,17 +166,54 @@ index 95a9ccb7f0..b6bd241d8e 100644
                  messageIds = []
              }
  
-@@ -1140,6 +1156,10 @@ public final class ChatInputMessageAccessoryPanel: Component {
+@@ -1140,6 +1158,10 @@ public final class ChatInputMessageAccessoryPanel: Component {
                  
                  titleText = [.text(NSAttributedString(string: authorName, font: Font.medium(14.0), textColor: environment.theme.chat.inputPanel.panelControlAccentColor))]
                  textString = NSAttributedString(string: text, font: Font.regular(14.0), textColor: environment.theme.chat.inputPanel.primaryTextColor)
 +            case let .videoDownload(videoDownload):
 +                let ru = environment.strings.baseLanguageCode.hasPrefix("ru")
-+                titleText = [.text(NSAttributedString(string: ru ? "Скачать видео" : "Download video", font: Font.medium(14.0), textColor: environment.theme.chat.inputPanel.panelControlAccentColor))]
++                titleText = [.text(NSAttributedString(string: ru ? "Скачать видео" : "Download video", font: Font.medium(14.0), textColor: UIColor(rgb: 0x34C759)))]
 +                textString = NSAttributedString(string: videoDownload.service, font: Font.regular(14.0), textColor: environment.theme.chat.inputPanel.primaryTextColor)
              case let .suggestPost(suggestPost):
                  if suggestPost.state.editingOriginalMessageId != nil {
                      titleText.append(.text(NSAttributedString(string: environment.strings.Chat_PostSuggestion_Suggest_InputEditTitle, font: Font.medium(14.0), textColor: environment.theme.chat.inputPanel.panelControlAccentColor)))
+@@ -1364,6 +1386,36 @@ public final class ChatInputMessageAccessoryPanel: Component {
+                 self.visualQuoteImageKey = nil
+                 imageNode.view.removeFromSuperview()
+             }
++            if case .videoDownload = component.contents {
++                // A green round download icon in place of the accent line.
++                let iconSize = CGSize(width: 36.0, height: 36.0)
++                let iconView: UIImageView
++                if let current = self.ayuDownloadIconView {
++                    iconView = current
++                } else {
++                    iconView = UIImageView(image: generateImage(iconSize, rotatedContext: { size, context in
++                        context.clear(CGRect(origin: CGPoint(), size: size))
++                        context.setFillColor(UIColor(rgb: 0x34C759).cgColor)
++                        context.fillEllipse(in: CGRect(origin: CGPoint(), size: size))
++                        UIGraphicsPushContext(context)
++                        if let arrow = UIImage(systemName: "arrow.down", withConfiguration: UIImage.SymbolConfiguration(pointSize: 17.0, weight: .bold))?.withTintColor(.white, renderingMode: .alwaysOriginal) {
++                            arrow.draw(at: CGPoint(x: floor((size.width - arrow.size.width) / 2.0), y: floor((size.height - arrow.size.height) / 2.0)))
++                        }
++                        UIGraphicsPopContext()
++                    }))
++                    self.ayuDownloadIconView = iconView
++                    self.addSubview(iconView)
++                }
++                self.lineView.isHidden = true
++                transition.setFrame(view: iconView, frame: CGRect(origin: CGPoint(x: lineFrame.minX, y: floor((cardHeight - iconSize.height) / 2.0)), size: iconSize))
++                contentLeftInset = lineFrame.minX + iconSize.width + 10.0
++            } else {
++                self.lineView.isHidden = false
++                if let iconView = self.ayuDownloadIconView {
++                    self.ayuDownloadIconView = nil
++                    iconView.removeFromSuperview()
++                }
++            }
+ 
+             self.titleNode.components = titleText
+             let titleSize = self.titleNode.update(constrainedSize: CGSize(width: availableSize.width - contentLeftInset - textInsets.right, height: 100.0))
 diff --git a/submodules/TelegramUI/Sources/AppDelegate.swift b/submodules/TelegramUI/Sources/AppDelegate.swift
 index 9271189b1f..01b5ff6e2b 100644
 --- a/submodules/TelegramUI/Sources/AppDelegate.swift
@@ -347,10 +393,10 @@ index 0000000000..6dbfa2a2d5
 +}
 diff --git a/submodules/TelegramUI/Sources/AyuVideoDownloader.swift b/submodules/TelegramUI/Sources/AyuVideoDownloader.swift
 new file mode 100644
-index 0000000000..469aec5b18
+index 0000000000..f86f935613
 --- /dev/null
 +++ b/submodules/TelegramUI/Sources/AyuVideoDownloader.swift
-@@ -0,0 +1,377 @@
+@@ -0,0 +1,383 @@
 +import Foundation
 +import UIKit
 +import Photos
@@ -589,26 +635,32 @@ index 0000000000..469aec5b18
 +        case chat
 +    }
 +
-+    /// The panel's tap: asks where the video goes, then downloads it there.
++    /// The panel's tap: asks where the video goes (Telegram's own action sheet), then downloads it.
 +    static func presentActions(_ link: Link, chat: ChatControllerImpl) {
-+        let ru = chat.presentationData.strings.baseLanguageCode.hasPrefix("ru")
-+        let sheet = UIAlertController(title: ru ? "Скачать видео" : "Download video", message: link.service.title, preferredStyle: .actionSheet)
-+        sheet.addAction(UIAlertAction(title: ru ? "Сохранить в галерею" : "Save to Photos", style: .default, handler: { [weak chat] _ in
-+            if let chat {
-+                run(link, destination: .gallery, chat: chat)
-+            }
-+        }))
-+        sheet.addAction(UIAlertAction(title: ru ? "Отправить в чат" : "Send to the chat", style: .default, handler: { [weak chat] _ in
-+            if let chat {
-+                run(link, destination: .chat, chat: chat)
-+            }
-+        }))
-+        sheet.addAction(UIAlertAction(title: ru ? "Отмена" : "Cancel", style: .cancel))
-+        if let popover = sheet.popoverPresentationController {
-+            popover.sourceView = chat.view
-+            popover.sourceRect = CGRect(x: chat.view.bounds.midX, y: chat.view.bounds.maxY - 120.0, width: 1.0, height: 1.0)
-+        }
-+        chat.context.sharedContext.applicationBindings.presentNativeController(sheet)
++        let presentationData = chat.presentationData
++        let ru = presentationData.strings.baseLanguageCode.hasPrefix("ru")
++        let sheet = ActionSheetController(presentationData: presentationData)
++        sheet.setItemGroups([ActionSheetItemGroup(items: [
++            ActionSheetTextItem(title: (ru ? "Скачать видео · " : "Download video · ") + link.service.title),
++            ActionSheetButtonItem(title: ru ? "Сохранить в галерею" : "Save to Photos", action: { [weak sheet, weak chat] in
++                sheet?.dismissAnimated()
++                if let chat {
++                    run(link, destination: .gallery, chat: chat)
++                }
++            }),
++            ActionSheetButtonItem(title: ru ? "Отправить в чат" : "Send to the chat", action: { [weak sheet, weak chat] in
++                sheet?.dismissAnimated()
++                if let chat {
++                    run(link, destination: .chat, chat: chat)
++                }
++            })
++        ]), ActionSheetItemGroup(items: [
++            ActionSheetButtonItem(title: presentationData.strings.Common_Cancel, color: .accent, font: .bold, action: { [weak sheet] in
++                sheet?.dismissAnimated()
++            })
++        ])])
++        chat.chatDisplayNode.dismissInput()
++        chat.present(sheet, in: .window(.root))
 +    }
 +
 +    private static func run(_ link: Link, destination: Destination, chat: ChatControllerImpl) {
