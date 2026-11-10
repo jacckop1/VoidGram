@@ -56,4 +56,4 @@ cmake -B "$work/build" -S "$work/src" -G Ninja \
   -Dtde2e_DIR="$td/install/lib/cmake/tde2e"
 cmake --build "$work/build" -j "$jobs"
 cmake --install "$work/build"
-echo "Built: $work/build/bin/Telegram, installed under $work/install"
+echo "Built: $work/build/bin/VoidGram, installed under $work/install"

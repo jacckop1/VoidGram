@@ -47,3 +47,13 @@ The work tree is `~/.cache/voidgram-desktop/src` (a clone of the tag in `VERSION
 one file with `ninja -C ~/.cache/voidgram-desktop/build <object>.o`, and export with
 `git add -N Telegram/SourceFiles/voidgram && git diff --binary > desktop/patches/0001-voidgram.patch`.
 The build script resets the tree to the tag and applies every patch, so a second run is safe.
+
+## Install and release
+
+Unpack a build and run `./install.sh`: it copies the program and icons to `~/.local`, adds
+"VoidGram" to the application menu (window class `com.voidgram.desktop`) and prints the list of
+changes. `./install.sh --uninstall` removes it again.
+
+A release is made by tagging a tested commit `desktop-vX.Y.Z` and pushing the tag: the workflow
+builds, then publishes the archive, `install.sh` and notes made by `desktop/changelog.sh` (one
+line per commit that touched `desktop/` since the previous `desktop-v*` tag).
