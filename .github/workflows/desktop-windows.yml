@@ -58,6 +58,13 @@ jobs:
           done
           echo "REPO_NAME=AyuGramDesktop" >> $GITHUB_ENV
 
+      - name: Fix the MSYS2 package name.
+        shell: bash
+        run: |
+          # MSYS2 no longer has mingw-w64-x86_64-diffutils; the same tool is the plain msys package.
+          sed -i 's/mingw-w64-x86_64-diffutils/diffutils/' "$TBUILD/$REPO_NAME/Telegram/build/prepare/prepare.py"
+          grep -n "diffutils" "$TBUILD/$REPO_NAME/Telegram/build/prepare/prepare.py"
+
       - name: First set up.
         shell: bash
         run: |
