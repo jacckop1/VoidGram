@@ -1,8 +1,8 @@
 diff --git a/Telegram/CMakeLists.txt b/Telegram/CMakeLists.txt
-index a957cfd..05b23df 100644
+index a957cfd..e4aaaf0 100644
 --- a/Telegram/CMakeLists.txt
 +++ b/Telegram/CMakeLists.txt
-@@ -129,6 +129,24 @@ set(ayugram_files
+@@ -129,6 +129,26 @@ set(ayugram_files
          ayu/utils/windows_utils.h
          ayu/utils/rc_manager.cpp
          ayu/utils/rc_manager.h
@@ -20,6 +20,8 @@ index a957cfd..05b23df 100644
 +        voidgram/voidgram_gifts.h
 +        voidgram/voidgram_names.cpp
 +        voidgram/voidgram_names.h
++        voidgram/voidgram_effects.cpp
++        voidgram/voidgram_effects.h
 +        voidgram/voidgram_look_box.cpp
 +        voidgram/voidgram_look_box.h
 +        voidgram/voidgram_profile_box.cpp
@@ -27,7 +29,7 @@ index a957cfd..05b23df 100644
          ayu/ui/ayu_logo.cpp
          ayu/ui/ayu_logo.h
          ayu/ui/toasts.cpp
-@@ -2571,7 +2589,7 @@ else()
+@@ -2571,7 +2591,7 @@ else()
          set(bundle_identifier "one.ayugram.AyuGramDesktop")
      endif()
      set(bundle_entitlements "Telegram.entitlements")
@@ -36,7 +38,7 @@ index a957cfd..05b23df 100644
  endif()
  
  if (CMAKE_GENERATOR STREQUAL Xcode)
-@@ -2620,7 +2638,7 @@ get_property(is_multi_config GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
+@@ -2620,7 +2640,7 @@ get_property(is_multi_config GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
  if (APPLE
      OR is_multi_config
      OR NOT CMAKE_EXECUTABLE_SUFFIX STREQUAL ""
@@ -45,7 +47,7 @@ index a957cfd..05b23df 100644
      set(output_folder ${CMAKE_BINARY_DIR})
  else()
      set(output_folder ${CMAKE_BINARY_DIR}/bin)
-@@ -2800,28 +2818,28 @@ endif()
+@@ -2800,28 +2820,28 @@ endif()
  
  if (LINUX AND DESKTOP_APP_USE_PACKAGED)
      include(GNUInstallDirs)
@@ -28720,6 +28722,50 @@ index cd3747c..75cc627 100644
  		.handler = nullptr,
  		.icon = &st::menuIconGroupReactions,
  		.fillSubmenu = [=](not_null<Ui::PopupMenu*> menu) {
+diff --git a/Telegram/SourceFiles/ayu/ui/settings/settings_appearance.cpp b/Telegram/SourceFiles/ayu/ui/settings/settings_appearance.cpp
+index 98e492a..9d0bbe3 100644
+--- a/Telegram/SourceFiles/ayu/ui/settings/settings_appearance.cpp
++++ b/Telegram/SourceFiles/ayu/ui/settings/settings_appearance.cpp
+@@ -29,6 +29,9 @@
+ #include "ui/widgets/labels.h"
+ #include "ui/wrap/padding_wrap.h"
+ #include "ui/wrap/vertical_layout.h"
++#include "lang/lang_keys.h"
++#include "ui/layers/generic_box.h"
++#include "voidgram/voidgram_effects.h"
+ #include "window/window_session_controller.h"
+ 
+ namespace Settings {
+@@ -232,6 +235,21 @@ void BuildAppearance(SectionBuilder &builder, AyuSectionBuilder &ayu) {
+ 	ayu.addSectionDivider();
+ }
+ 
++void BuildEffects(SectionBuilder &builder) {
++	const auto controller = builder.controller();
++	builder.addButton({
++		.id = u"voidgram/effects"_q,
++		.title = rpl::single(Lang::Id().startsWith(u"ru"_q)
++			? QString::fromUtf8("Эффект поверх Telegram")
++			: QString("Effect over Telegram")),
++		.icon = { &st::menuIconPalette },
++		.onClick = [=] {
++			controller->show(Box(VoidGram::EffectsBox));
++		},
++	});
++	builder.addSkip();
++}
++
+ void BuildChatFolders(SectionBuilder &builder, AyuSectionBuilder &ayu) {
+ 	builder.addSubsectionTitle(tr::ayu_ChatFoldersHeader());
+ 
+@@ -386,6 +404,7 @@ const auto kMeta = BuildHelper({
+ 	BuildAppIcon(builder, ayu);
+ 	BuildAvatarCorners(builder, ayu);
+ 	BuildAppearance(builder, ayu);
++	BuildEffects(builder);
+ 	BuildChatFolders(builder, ayu);
+ 	BuildTrayElements(builder, ayu);
+ 	BuildDrawerElements(builder, ayu);
 diff --git a/Telegram/SourceFiles/ayu/ui/settings/settings_ayu.cpp b/Telegram/SourceFiles/ayu/ui/settings/settings_ayu.cpp
 index 657677d..62bed26 100644
 --- a/Telegram/SourceFiles/ayu/ui/settings/settings_ayu.cpp
@@ -29744,6 +29790,26 @@ index 40cc5e2..8b38ffd 100644
  		return tr::marked(Ui::FormatPhone(user->phone()));
  	});
  }
+diff --git a/Telegram/SourceFiles/mainwidget.cpp b/Telegram/SourceFiles/mainwidget.cpp
+index 96cf0ba..bc4f604 100644
+--- a/Telegram/SourceFiles/mainwidget.cpp
++++ b/Telegram/SourceFiles/mainwidget.cpp
+@@ -105,6 +105,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
+ 
+ // AyuGram includes
+ #include "ayu/features/forward/ayu_forward.h"
++#include "voidgram/voidgram_effects.h"
+ 
+ 
+ namespace {
+@@ -292,6 +293,7 @@ MainWidget::MainWidget(
+ 	if (_dialogs) {
+ 		setupConnectingWidget();
+ 	}
++	VoidGram::AttachEffects(this);
+ 
+ 	_history->cancelRequests(
+ 	) | rpl::on_next([=] {
 diff --git a/Telegram/SourceFiles/platform/linux/specific_linux.cpp b/Telegram/SourceFiles/platform/linux/specific_linux.cpp
 index 13db856..d21de7a 100644
 --- a/Telegram/SourceFiles/platform/linux/specific_linux.cpp
@@ -29793,6 +29859,495 @@ index 3ea2e08..1d080fa 100644
  	});
  	_tray.addAction(std::move(quitText), [] { Core::Quit(); });
  
+diff --git a/Telegram/SourceFiles/voidgram/voidgram_effects.cpp b/Telegram/SourceFiles/voidgram/voidgram_effects.cpp
+new file mode 100644
+index 0000000..cccb62f
+--- /dev/null
++++ b/Telegram/SourceFiles/voidgram/voidgram_effects.cpp
+@@ -0,0 +1,427 @@
++// This file is part of VoidGram for Desktop, a fork of AyuGram Desktop.
++// It is licensed under GPLv3 with the same exceptions as the rest of the code.
++#include "voidgram/voidgram_effects.h"
++
++#include "lang/lang_keys.h"
++#include "styles/style_boxes.h"
++#include "styles/style_layers.h"
++#include "styles/style_widgets.h"
++#include "ui/layers/generic_box.h"
++#include "ui/painter.h"
++#include "ui/rp_widget.h"
++#include "ui/widgets/checkbox.h"
++#include "ui/widgets/continuous_sliders.h"
++#include "ui/widgets/labels.h"
++
++#include <QtCore/QDateTime>
++#include <QtCore/QSettings>
++#include <QtCore/QTimer>
++#include <QtGui/QImage>
++#include <QtGui/QPainterPath>
++#include <QtGui/QRadialGradient>
++
++#include <algorithm>
++#include <cmath>
++#include <random>
++#include <vector>
++
++namespace VoidGram {
++namespace {
++
++constexpr auto kFrameMs = 33;
++
++[[nodiscard]] QString Text(const char *ru, const char *en) {
++	return Lang::Id().startsWith(u"ru"_q)
++		? QString::fromUtf8(ru)
++		: QString::fromUtf8(en);
++}
++
++[[nodiscard]] QSettings &Store() {
++	static auto result = QSettings(u"VoidGram"_q, u"effects"_q);
++	return result;
++}
++
++[[nodiscard]] rpl::event_stream<> &Changed() {
++	static auto result = rpl::event_stream<>();
++	return result;
++}
++
++[[nodiscard]] const char *EffectKey(Effect effect) {
++	switch (effect) {
++	case Effect::Snow: return "snow";
++	case Effect::Leaves: return "leaves";
++	case Effect::Rain: return "rain";
++	case Effect::Stars: return "stars";
++	case Effect::Confetti: return "confetti";
++	default: return "none";
++	}
++}
++
++[[nodiscard]] std::mt19937 &Random() {
++	static auto result = std::mt19937(std::random_device()());
++	return result;
++}
++
++[[nodiscard]] double Rand(double from, double to) {
++	return std::uniform_real_distribution<double>(from, to)(Random());
++}
++
++[[nodiscard]] QImage Sprite(Effect effect, SnowShape shape, QColor color) {
++	constexpr auto size = 48;
++	auto image = QImage(size, size, QImage::Format_ARGB32_Premultiplied);
++	image.fill(Qt::transparent);
++	auto p = QPainter(&image);
++	p.setRenderHint(QPainter::Antialiasing);
++	const auto c = QPointF(size / 2., size / 2.);
++	switch (effect) {
++	case Effect::Snow:
++		if (shape == SnowShape::Flakes) {
++			auto pen = QPen(Qt::white, 2.4, Qt::SolidLine, Qt::RoundCap);
++			p.setPen(pen);
++			for (auto i = 0; i != 6; ++i) {
++				p.save();
++				p.translate(c);
++				p.rotate(i * 60.);
++				p.drawLine(QPointF(0, 0), QPointF(0, -20));
++				p.drawLine(QPointF(0, -12), QPointF(-5, -17));
++				p.drawLine(QPointF(0, -12), QPointF(5, -17));
++				p.restore();
++			}
++		} else if (shape == SnowShape::Mark) {
++			// The VoidGram mark: a triangle with a notch, as a simple stand-in for the logo.
++			auto path = QPainterPath();
++			path.moveTo(c.x(), 4);
++			path.lineTo(size - 5, size - 6);
++			path.lineTo(c.x() + 6, size - 6);
++			path.lineTo(c.x(), 24);
++			path.lineTo(c.x() - 6, size - 6);
++			path.lineTo(5, size - 6);
++			path.closeSubpath();
++			p.setPen(Qt::NoPen);
++			p.setBrush(Qt::white);
++			p.drawPath(path);
++		} else {
++			auto gradient = QRadialGradient(c, size / 2.);
++			gradient.setColorAt(0.45, Qt::white);
++			gradient.setColorAt(1., QColor(255, 255, 255, 0));
++			p.setPen(Qt::NoPen);
++			p.setBrush(gradient);
++			p.drawEllipse(QRectF(0, 0, size, size));
++		}
++		break;
++	case Effect::Leaves: {
++		auto path = QPainterPath();
++		path.moveTo(c.x(), 3);
++		path.cubicTo(size - 3, 12, size - 6, 34, c.x(), size - 3);
++		path.cubicTo(6, 34, 3, 12, c.x(), 3);
++		p.setPen(Qt::NoPen);
++		p.setBrush(color);
++		p.drawPath(path);
++		p.setPen(QPen(QColor(0, 0, 0, 70), 1.6));
++		p.drawLine(QPointF(c.x(), 8), QPointF(c.x(), size - 5));
++	} break;
++	case Effect::Rain:
++		p.setPen(Qt::NoPen);
++		p.setBrush(QColor(153, 191, 255, 140));
++		p.drawRoundedRect(QRectF(c.x() - 1.5, 2, 3, size - 4), 1.5, 1.5);
++		break;
++	case Effect::Stars: {
++		auto path = QPainterPath();
++		for (auto i = 0; i != 10; ++i) {
++			const auto radius = (i % 2) ? 8. : 20.;
++			const auto angle = (i * 36. - 90.) * M_PI / 180.;
++			const auto point = QPointF(c.x() + radius * std::cos(angle), c.y() + radius * std::sin(angle));
++			if (i) {
++				path.lineTo(point);
++			} else {
++				path.moveTo(point);
++			}
++		}
++		path.closeSubpath();
++		p.setPen(Qt::NoPen);
++		p.setBrush(QColor(255, 226, 120));
++		p.drawPath(path);
++	} break;
++	case Effect::Confetti:
++		p.setPen(Qt::NoPen);
++		p.setBrush(Qt::white);
++		p.drawRoundedRect(QRectF(10, 16, 28, 16), 2, 2);
++		break;
++	default: break;
++	}
++	return image;
++}
++
++class Overlay final : public Ui::RpWidget {
++public:
++	explicit Overlay(QWidget *parent) : RpWidget(parent) {
++		setAttribute(Qt::WA_TransparentForMouseEvents);
++		setAttribute(Qt::WA_NoSystemBackground);
++		_timer.setInterval(kFrameMs);
++		_timer.setTimerType(Qt::PreciseTimer);
++		connect(&_timer, &QTimer::timeout, [=] { tick(); });
++		Changed().events() | rpl::on_next([=] { reload(); }, lifetime());
++		reload();
++	}
++
++protected:
++	void paintEvent(QPaintEvent *e) override {
++		if (_settings.effect == Effect::None) {
++			return;
++		}
++		auto p = QPainter(this);
++		p.setRenderHint(QPainter::SmoothPixmapTransform);
++		for (const auto &particle : _particles) {
++			const auto fade = std::clamp(particle.life / 1.5, 0., 1.);
++			p.setOpacity(particle.alpha * std::min(1., fade));
++			p.save();
++			p.translate(particle.x, particle.y);
++			p.rotate(particle.angle);
++			const auto side = particle.size;
++			if (_settings.effect == Effect::Confetti) {
++				p.setPen(Qt::NoPen);
++				p.setBrush(particle.color);
++				p.drawRoundedRect(QRectF(-side / 2, -side / 3, side, side * 0.6), 2, 2);
++			} else {
++				p.drawImage(QRectF(-side / 2, -side / 2, side, side), _sprites.front());
++			}
++			p.restore();
++		}
++	}
++
++private:
++	struct Particle {
++		double x = 0, y = 0, vx = 0, vy = 0;
++		double size = 10, alpha = 1, angle = 0, spin = 0, life = 0;
++		QColor color;
++	};
++
++	void reload() {
++		_settings = LoadEffectSettings();
++		_particles.clear();
++		_sprites.clear();
++		if (_settings.effect == Effect::None) {
++			_timer.stop();
++			hide();
++			return;
++		}
++		_sprites.push_back(Sprite(_settings.effect, _settings.shape, QColor(242, 140, 38, 230)));
++		show();
++		raise();
++		_carry = 0;
++		// Start already filled instead of waiting for the first ones to fall in.
++		for (auto i = 0; i != 300; ++i) {
++			step(kFrameMs / 1000.);
++		}
++		_timer.start();
++	}
++
++	[[nodiscard]] double particleLife() const {
++		return (_settings.effect == Effect::Rain ? 4. : 14.) / _settings.speed;
++	}
++
++	[[nodiscard]] double birthRate() const {
++		const auto amount = _settings.amount;
++		switch (_settings.effect) {
++		case Effect::Snow:
++			return (_settings.shape == SnowShape::Dots ? 10. : 6.) * amount;
++		case Effect::Leaves: return 2. * amount;
++		case Effect::Rain: return 30. * amount;
++		case Effect::Stars: return 3. * amount;
++		case Effect::Confetti: return 8. * amount;
++		default: return 0.;
++		}
++	}
++
++	void spawn() {
++		const auto speed = _settings.speed;
++		auto particle = Particle();
++		particle.x = Rand(-0.15, 1.15) * width();
++		particle.y = -10;
++		particle.life = particleLife();
++		particle.alpha = 1.;
++		const auto spread = [&](double range) { return Rand(-range, range); };
++		switch (_settings.effect) {
++		case Effect::Snow: {
++			const auto flake = _settings.shape != SnowShape::Dots;
++			particle.size = (flake ? Rand(14., 26.) : Rand(5., 12.));
++			particle.vy = (35. + Rand(-18., 18.)) * speed;
++			particle.vx = spread(14.);
++			particle.alpha = Rand(0.5, 0.95);
++			particle.spin = flake ? Rand(-60., 60.) : 0.;
++		} break;
++		case Effect::Leaves:
++			particle.size = Rand(18., 30.);
++			particle.vy = (40. + Rand(-15., 15.)) * speed;
++			particle.vx = spread(40.);
++			particle.spin = Rand(-130., 130.);
++			particle.alpha = 0.9;
++			break;
++		case Effect::Rain:
++			particle.size = 22;
++			particle.vy = (420. + Rand(-80., 80.)) * speed;
++			particle.vx = spread(10.);
++			particle.alpha = Rand(0.5, 1.);
++			break;
++		case Effect::Stars:
++			particle.size = Rand(8., 20.);
++			particle.vy = (25. + Rand(0., 10.)) * speed;
++			particle.vx = spread(5.);
++			particle.spin = Rand(-40., 40.);
++			particle.alpha = Rand(0.5, 1.);
++			break;
++		case Effect::Confetti:
++			particle.size = Rand(10., 18.);
++			particle.vy = (90. + Rand(-40., 40.)) * speed;
++			particle.vx = spread(40.);
++			particle.spin = Rand(-300., 300.);
++			particle.color = QColor::fromHsvF(Rand(0., 1.), 0.8, 1.);
++			break;
++		default: break;
++		}
++		_particles.push_back(particle);
++	}
++
++	void step(double dt) {
++		_carry += birthRate() * dt;
++		while (_carry >= 1.) {
++			_carry -= 1.;
++			spawn();
++		}
++		const auto gravity = (_settings.effect == Effect::Rain ? 120.
++			: _settings.effect == Effect::Confetti ? 40.
++			: _settings.effect == Effect::Leaves ? 10.
++			: _settings.effect == Effect::Snow ? 6.
++			: 0.) * _settings.speed;
++		for (auto &particle : _particles) {
++			particle.vy += gravity * dt;
++			particle.x += particle.vx * dt;
++			particle.y += particle.vy * dt;
++			particle.angle += particle.spin * dt;
++			particle.life -= dt;
++		}
++		const auto bottom = height() + 40;
++		std::erase_if(_particles, [&](const Particle &particle) {
++			return particle.life <= 0 || particle.y > bottom;
++		});
++	}
++
++	void tick() {
++		step(kFrameMs / 1000.);
++		update();
++	}
++
++	EffectSettings _settings;
++	std::vector<Particle> _particles;
++	std::vector<QImage> _sprites;
++	double _carry = 0;
++	QTimer _timer;
++
++};
++
++} // namespace
++
++EffectSettings LoadEffectSettings() {
++	auto &store = Store();
++	auto result = EffectSettings();
++	const auto name = store.value("effect", "none").toString();
++	for (const auto effect : {
++		Effect::Snow, Effect::Leaves, Effect::Rain, Effect::Stars, Effect::Confetti,
++	}) {
++		if (name == QLatin1String(EffectKey(effect))) {
++			result.effect = effect;
++		}
++	}
++	result.shape = SnowShape(std::clamp(store.value("shape", 0).toInt(), 0, 2));
++	result.amount = std::clamp(store.value("amount", 1.).toDouble(), 0.1, 3.);
++	result.speed = std::clamp(store.value("speed", 1.).toDouble(), 0.2, 3.);
++	return result;
++}
++
++void SaveEffectSettings(const EffectSettings &settings) {
++	auto &store = Store();
++	store.setValue("effect", QString::fromLatin1(EffectKey(settings.effect)));
++	store.setValue("shape", int(settings.shape));
++	store.setValue("amount", settings.amount);
++	store.setValue("speed", settings.speed);
++	store.sync();
++	Changed().fire({});
++}
++
++void AttachEffects(not_null<QWidget*> parent) {
++	const auto overlay = Ui::CreateChild<Overlay>(parent.get());
++	const auto fit = [=] {
++		overlay->setGeometry(parent->rect());
++		overlay->raise();
++	};
++	if (const auto rp = dynamic_cast<Ui::RpWidget*>(parent.get())) {
++		rp->sizeValue() | rpl::on_next([=](QSize) { fit(); }, overlay->lifetime());
++	}
++	fit();
++}
++
++void EffectsBox(not_null<Ui::GenericBox*> box) {
++	box->setTitle(rpl::single(Text("Эффект поверх Telegram", "Effect over Telegram")));
++	const auto state = std::make_shared<EffectSettings>(LoadEffectSettings());
++	const auto save = [=] { SaveEffectSettings(*state); };
++
++	const auto effects = std::vector<std::pair<Effect, QString>>{
++		{ Effect::None, Text("Выключено", "Off") },
++		{ Effect::Snow, Text("Снег", "Snow") },
++		{ Effect::Leaves, Text("Осенние листья", "Autumn leaves") },
++		{ Effect::Rain, Text("Дождь", "Rain") },
++		{ Effect::Stars, Text("Звёзды", "Stars") },
++		{ Effect::Confetti, Text("Конфетти", "Confetti") },
++	};
++	const auto group = std::make_shared<Ui::RadiobuttonGroup>(int(state->effect));
++	group->setChangedCallback([=](int value) {
++		state->effect = Effect(value);
++		save();
++	});
++	for (const auto &[effect, title] : effects) {
++		box->addRow(
++			object_ptr<Ui::Radiobutton>(box, group, int(effect), title, st::defaultCheckbox),
++			st::boxRowPadding);
++	}
++
++	box->addRow(
++		object_ptr<Ui::FlatLabel>(box, rpl::single(Text("Снег состоит из", "Snow is made of")), st::boxLabel),
++		st::boxRowPadding);
++	const auto shapes = std::make_shared<Ui::RadiobuttonGroup>(int(state->shape));
++	shapes->setChangedCallback([=](int value) {
++		state->shape = SnowShape(value);
++		save();
++	});
++	const auto shapeTitles = std::vector<QString>{
++		Text("Точки", "Dots"),
++		Text("Снежинки", "Snowflakes"),
++		Text("Знак VoidGram", "VoidGram mark"),
++	};
++	for (auto i = 0; i != 3; ++i) {
++		box->addRow(
++			object_ptr<Ui::Radiobutton>(box, shapes, i, shapeTitles[i], st::defaultCheckbox),
++			st::boxRowPadding);
++	}
++
++	const auto addSlider = [&](QString title, double from, double to, double *value) {
++		box->addRow(
++			object_ptr<Ui::FlatLabel>(box, rpl::single(title), st::boxLabel),
++			st::boxRowPadding);
++		const auto slider = box->addRow(
++			object_ptr<Ui::MediaSlider>(box, st::autoDownloadLimitSlider),
++			st::boxRowPadding);
++		slider->resize(st::autoDownloadLimitSlider.seekSize);
++		slider->setValue((*value - from) / (to - from));
++		slider->setChangeProgressCallback([=](float64 progress) {
++			*value = from + progress * (to - from);
++			save();
++		});
++	};
++	// The pointers stay valid: `state` lives as long as the box's callbacks do.
++	addSlider(Text("Сколько", "Amount"), 0.1, 3., &state->amount);
++	addSlider(Text("Скорость", "Speed"), 0.2, 3., &state->speed);
++
++	box->addButton(tr::lng_close(), [=] { box->closeBox(); });
++}
++
++} // namespace VoidGram
+diff --git a/Telegram/SourceFiles/voidgram/voidgram_effects.h b/Telegram/SourceFiles/voidgram/voidgram_effects.h
+new file mode 100644
+index 0000000..edef5fd
+--- /dev/null
++++ b/Telegram/SourceFiles/voidgram/voidgram_effects.h
+@@ -0,0 +1,50 @@
++// This file is part of VoidGram for Desktop, a fork of AyuGram Desktop.
++// It is licensed under GPLv3 with the same exceptions as the rest of the code.
++#pragma once
++
++#include "base/object_ptr.h"
++
++#include <QtCore/QString>
++
++class QWidget;
++
++namespace Ui {
++class GenericBox;
++} // namespace Ui
++
++namespace VoidGram {
++
++// What falls over the window, as in the iOS client's "Effect over Telegram".
++enum class Effect {
++	None,
++	Snow,
++	Leaves,
++	Rain,
++	Stars,
++	Confetti,
++};
++
++enum class SnowShape {
++	Dots,
++	Flakes,
++	Mark,
++};
++
++struct EffectSettings {
++	Effect effect = Effect::None;
++	SnowShape shape = SnowShape::Dots;
++	double amount = 1.; // 0.1 to 3: how many at once.
++	double speed = 1.; // 0.2 to 3: how fast they fall.
++};
++
++[[nodiscard]] EffectSettings LoadEffectSettings();
++void SaveEffectSettings(const EffectSettings &settings);
++
++// Puts the overlay over `parent` (the main widget). It lets every click through and follows the
++// settings as they change.
++void AttachEffects(not_null<QWidget*> parent);
++
++// The settings box: the effect, what the snow is made of, how many and how fast.
++void EffectsBox(not_null<Ui::GenericBox*> box);
++
++} // namespace VoidGram
 diff --git a/Telegram/SourceFiles/voidgram/voidgram_frames.cpp b/Telegram/SourceFiles/voidgram/voidgram_frames.cpp
 new file mode 100644
 index 0000000..c3afe4a
