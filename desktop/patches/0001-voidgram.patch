@@ -28515,7 +28515,7 @@ index f727092..6a047e0 100644
    </qresource>
  </RCC>
 diff --git a/Telegram/SourceFiles/ayu/ayu_infra.cpp b/Telegram/SourceFiles/ayu/ayu_infra.cpp
-index 2fa8a2a..0ddf137 100644
+index 2fa8a2a..fe3b2eb 100644
 --- a/Telegram/SourceFiles/ayu/ayu_infra.cpp
 +++ b/Telegram/SourceFiles/ayu/ayu_infra.cpp
 @@ -16,6 +16,7 @@
@@ -28534,6 +28534,14 @@ index 2fa8a2a..0ddf137 100644
  }
  
  void initTranslator() {
+@@ -65,6 +67,7 @@ void initIcon() {
+ 	AyuAssets::loadAppIco();
+ 	reloadAppIconFromTaskBar();
+ #endif
++	AyuAssets::installLinuxIcon();
+ }
+ 
+ void init() {
 diff --git a/Telegram/SourceFiles/ayu/ayu_lang.cpp b/Telegram/SourceFiles/ayu/ayu_lang.cpp
 index 1170719..1e66153 100644
 --- a/Telegram/SourceFiles/ayu/ayu_lang.cpp
@@ -28562,6 +28570,70 @@ index 9e43d9e..fe7138d 100644
  
  	multiPart->append(contentPart);
  	multiPart->append(syntaxPart);
+diff --git a/Telegram/SourceFiles/ayu/ui/ayu_logo.cpp b/Telegram/SourceFiles/ayu/ui/ayu_logo.cpp
+index ce13662..10b298c 100644
+--- a/Telegram/SourceFiles/ayu/ui/ayu_logo.cpp
++++ b/Telegram/SourceFiles/ayu/ui/ayu_logo.cpp
+@@ -6,6 +6,9 @@
+ // Copyright @Radolyn, 2026
+ #include "ayu/ui/ayu_logo.h"
+ 
++#include <QtCore/QDir>
++#include <QtCore/QStandardPaths>
++
+ #include "ayu/ayu_settings.h"
+ #include "styles/style_ayu_styles.h"
+ #include "ui/rect.h"
+@@ -104,6 +107,35 @@ QImage loadPreview(const QString &name) {
+ 	return CreateImage(name, Size(st::iconPickerIconSize), st::iconPickerImagePadding);
+ }
+ 
++void installLinuxIcon() {
++#ifdef Q_OS_LINUX
++	loadIcons();
++	if (LAST_LOADED.isNull()) {
++		return;
++	}
++	auto roots = QStringList{ QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation) };
++	for (const auto &dir : qEnvironmentVariable("XDG_DATA_DIRS").split(':', Qt::SkipEmptyParts)) {
++		if (dir.startsWith(QDir::homePath() + '/')) {
++			roots.push_back(dir);
++		}
++	}
++	for (const auto size : { 16, 24, 32, 48, 64, 128, 256, 512 }) {
++		auto image = CreateImage(LAST_LOADED_NAME, QSize(size, size));
++		if (image.isNull()) {
++			continue;
++		}
++		image = image.scaled(size, size, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
++		image.setDevicePixelRatio(1.);
++		for (const auto &root : roots) {
++			const auto dir = QStringLiteral("%1/icons/hicolor/%2x%2/apps").arg(root).arg(size);
++			if (QDir().mkpath(dir)) {
++				image.save(dir + u"/com.voidgram.desktop.png"_q, "PNG");
++			}
++		}
++	}
++#endif
++}
++
+ QString currentAppLogoName() {
+ 	return LAST_LOADED_NAME;
+ }
+diff --git a/Telegram/SourceFiles/ayu/ui/ayu_logo.h b/Telegram/SourceFiles/ayu/ui/ayu_logo.h
+index 762bd56..6b3a4af 100644
+--- a/Telegram/SourceFiles/ayu/ui/ayu_logo.h
++++ b/Telegram/SourceFiles/ayu/ui/ayu_logo.h
+@@ -24,6 +24,9 @@ ICON(CHIBI2, "chibi2");
+ ICON(EXTERA2, "extera2");
+ 
+ void loadAppIco();
++// On Linux the launcher and the window take the icon from the icon theme, not from the program:
++// writes the chosen icon over the theme's com.voidgram.desktop in the user's folders.
++void installLinuxIcon();
+ QString appIcoPath();
+ 
+ QImage loadPreview(const QString& name);
 diff --git a/Telegram/SourceFiles/ayu/ui/components/avatar_corners_preview.cpp b/Telegram/SourceFiles/ayu/ui/components/avatar_corners_preview.cpp
 index 6783c21..dda5056 100644
 --- a/Telegram/SourceFiles/ayu/ui/components/avatar_corners_preview.cpp
@@ -28610,6 +28682,18 @@ index 6783c21..dda5056 100644
  		MTP_string()
  	)).done([=](const MTPcontacts_ResolvedPeer &result) {
  		if (const auto strong = weak.get()) {
+diff --git a/Telegram/SourceFiles/ayu/ui/components/icon_picker.cpp b/Telegram/SourceFiles/ayu/ui/components/icon_picker.cpp
+index 08d9db8..dd0d068 100644
+--- a/Telegram/SourceFiles/ayu/ui/components/icon_picker.cpp
++++ b/Telegram/SourceFiles/ayu/ui/components/icon_picker.cpp
+@@ -45,6 +45,7 @@ void applyIcon() {
+ 	reloadAppIconFromTaskBar();
+ #endif
+ 
++	AyuAssets::installLinuxIcon();
+ 	Window::OverrideApplicationIcon(AyuAssets::currentAppLogo());
+ 	Core::App().refreshApplicationIcon();
+ 	Core::App().tray().updateIconCounters();
 diff --git a/Telegram/SourceFiles/ayu/ui/components/message_preview.cpp b/Telegram/SourceFiles/ayu/ui/components/message_preview.cpp
 index 79d9de0..c0b30fc 100644
 --- a/Telegram/SourceFiles/ayu/ui/components/message_preview.cpp
@@ -28659,7 +28743,7 @@ index 657677d..62bed26 100644
  
  AyuGhost::AyuGhost(
 diff --git a/Telegram/SourceFiles/ayu/ui/settings/settings_main.cpp b/Telegram/SourceFiles/ayu/ui/settings/settings_main.cpp
-index a4b1e7a..127bfdb 100644
+index a4b1e7a..b1078c8 100644
 --- a/Telegram/SourceFiles/ayu/ui/settings/settings_main.cpp
 +++ b/Telegram/SourceFiles/ayu/ui/settings/settings_main.cpp
 @@ -8,6 +8,7 @@
@@ -28670,18 +28754,26 @@ index a4b1e7a..127bfdb 100644
  #include "ayu/ayu_settings.h"
  #include "ayu/ui/ayu_logo.h"
  #include "ayu/ui/settings/settings_appearance.h"
-@@ -23,7 +24,10 @@
+@@ -23,6 +24,7 @@
  #include "styles/style_layers.h"
  #include "styles/style_menu_icons.h"
  #include "styles/style_settings.h"
 +#include "ui/layers/generic_box.h"
  #include "ui/painter.h"
-+#include "voidgram/voidgram_look_box.h"
-+#include "voidgram/voidgram_profile_box.h"
  #include "ui/widgets/buttons.h"
  #include "ui/widgets/labels.h"
- #include "ui/wrap/vertical_layout.h"
-@@ -70,7 +74,7 @@ void BuildVersionInfo(SectionBuilder &builder) {
+@@ -57,6 +59,10 @@ void BuildLogo(SectionBuilder &builder) {
+ 					size * style::DevicePixelRatio(),
+ 					Qt::KeepAspectRatio,
+ 					Qt::SmoothTransformation);
++				p.setRenderHint(QPainter::Antialiasing);
++				auto clip = QPainterPath();
++				clip.addRoundedRect(QRectF(0, 0, size, size), size * 0.22, size * 0.22);
++				p.setClipPath(clip);
+ 				p.drawImage(QRect(0, 0, size, size), scaled);
+ 			}
+ 		}, logoRaw->lifetime());
+@@ -70,7 +76,7 @@ void BuildVersionInfo(SectionBuilder &builder) {
  			.widget = object_ptr<Ui::FlatLabel>(
  				ctx.container,
  				rpl::single(
@@ -28690,7 +28782,7 @@ index a4b1e7a..127bfdb 100644
  					+ QString::fromLatin1(AppVersionStr)),
  				st::boxTitle),
  			.align = style::al_top,
-@@ -90,6 +94,20 @@ void BuildVersionInfo(SectionBuilder &builder) {
+@@ -90,6 +96,16 @@ void BuildVersionInfo(SectionBuilder &builder) {
  	});
  }
  
@@ -28700,43 +28792,20 @@ index a4b1e7a..127bfdb 100644
 +		: QString::fromUtf8(en));
 +}
 +
-+[[nodiscard]] IconDescriptor Colored(const style::icon *icon, uint32 rgb) {
-+	return {
-+		.icon = icon,
-+		.type = IconType::Rounded,
-+		.backgroundBrush = QBrush(QColor::fromRgb(rgb)),
-+	};
++[[nodiscard]] IconDescriptor Colored(const style::icon *icon, uint32) {
++	return { .icon = icon };
 +}
 +
  void BuildCategories(SectionBuilder &builder) {
  	builder.addSkip();
  	builder.addSkip();
-@@ -98,37 +116,56 @@ void BuildCategories(SectionBuilder &builder) {
+@@ -98,37 +114,37 @@ void BuildCategories(SectionBuilder &builder) {
  	builder.addDivider();
  	builder.addSkip();
  
 -	builder.addSubsectionTitle(tr::ayu_CategoriesHeader());
 +	builder.addSubsectionTitle(Text("КАТЕГОРИИ", "CATEGORIES"));
  
-+	const auto controller = builder.controller();
-+	builder.addButton({
-+		.id = u"voidgram/look"_q,
-+		.title = Text("Рамка и ник", "Frame and name"),
-+		.icon = Colored(&st::menuIconPremium, 0xFFB000),
-+		.onClick = [=] {
-+			controller->show(Box(VoidGram::LookBox, controller));
-+		},
-+	});
-+	if (VoidGram::CanEditProfile(controller)) {
-+		builder.addButton({
-+			.id = u"voidgram/profile"_q,
-+			.title = Text("Мой профиль: TON, номер, рейтинг", "My profile: TON, phone, rating"),
-+			.icon = Colored(&st::menuIconProfile, 0x34AADC),
-+			.onClick = [=] {
-+				controller->show(Box(VoidGram::ProfileBox, controller));
-+			},
-+		});
-+	}
  	builder.addSectionButton({
 -		.title = rpl::single(QString("AyuGram")),
 +		.title = Text("Приватность", "Privacy"),
@@ -28768,14 +28837,14 @@ index a4b1e7a..127bfdb 100644
 +		.title = Text("Оформление", "Appearance"),
  		.targetSection = AyuAppearance::Id(),
 -		.icon = { &st::menuIconPalette },
-+		.icon = Colored(&st::menuIconPalette, 0xFF2D55),
- 	});
- 	builder.addSectionButton({
+-	});
+-	builder.addSectionButton({
 -		.title = tr::ayu_CategoryChats(),
 -		.targetSection = AyuChats::Id(),
 -		.icon = { &st::menuIconChatBubble },
--	});
--	builder.addSectionButton({
++		.icon = Colored(&st::menuIconPalette, 0xFF2D55),
+ 	});
+ 	builder.addSectionButton({
 -		.title = tr::ayu_CategoryOther(),
 +		.title = Text("Ещё", "More"),
  		.targetSection = AyuOther::Id(),
@@ -28784,7 +28853,7 @@ index a4b1e7a..127bfdb 100644
  	});
  }
  
-@@ -137,50 +174,40 @@ void BuildLinks(SectionBuilder &builder) {
+@@ -137,50 +153,40 @@ void BuildLinks(SectionBuilder &builder) {
  	builder.addDivider();
  	builder.addSkip();
  
@@ -28798,29 +28867,29 @@ index a4b1e7a..127bfdb 100644
 -		.title = tr::ayu_LinksChannel(),
 -		.icon = { &st::menuIconChannel },
 -		.label = rpl::single(QString("@ayugram")),
--		.onClick = [=] {
--			controller->showPeerByLink(Window::PeerByLinkInfo{
--				.usernameOrId = QString("ayugram"),
--			});
--		},
--	});
--	builder.addButton({
--		.id = u"ayu/chat"_q,
--		.title = tr::ayu_LinksChats(),
--		.icon = { &st::menuIconChats },
--		.label = rpl::single(QString("@ayugramchat")),
 +		.id = u"voidgram/channel"_q,
 +		.title = Text("Канал", "Channel"),
 +		.icon = Colored(&st::menuIconChannel, 0x007AFF),
 +		.label = rpl::single(QString("@neosay1337")),
  		.onClick = [=] {
  			controller->showPeerByLink(Window::PeerByLinkInfo{
--				.usernameOrId = QString("ayugramchat"),
+-				.usernameOrId = QString("ayugram"),
 +				.usernameOrId = QString("neosay1337"),
  			});
  		},
  	});
  	builder.addButton({
+-		.id = u"ayu/chat"_q,
+-		.title = tr::ayu_LinksChats(),
+-		.icon = { &st::menuIconChats },
+-		.label = rpl::single(QString("@ayugramchat")),
+-		.onClick = [=] {
+-			controller->showPeerByLink(Window::PeerByLinkInfo{
+-				.usernameOrId = QString("ayugramchat"),
+-			});
+-		},
+-	});
+-	builder.addButton({
 -		.id = u"ayu/crowdin"_q,
 -		.title = tr::ayu_LinksTranslate(),
 -		.icon = { &st::menuIconTranslate },
@@ -28853,6 +28922,19 @@ index a4b1e7a..127bfdb 100644
  		},
  	});
  
+diff --git a/Telegram/SourceFiles/ayu/ui/settings/settings_other.cpp b/Telegram/SourceFiles/ayu/ui/settings/settings_other.cpp
+index 929cf46..a7238ae 100644
+--- a/Telegram/SourceFiles/ayu/ui/settings/settings_other.cpp
++++ b/Telegram/SourceFiles/ayu/ui/settings/settings_other.cpp
+@@ -234,7 +234,7 @@ const auto kMeta = BuildHelper({
+ 	auto ayu = AyuSectionBuilder(builder);
+ 
+ 	builder.addSkip();
+-	BuildDonations(builder);
++	// The donation section of AyuGram (its author's wallets) is not part of VoidGram.
+ 	BuildCrashReporting(builder, ayu);
+ 	BuildOtherThings(builder);
+ });
 diff --git a/Telegram/SourceFiles/ayu/utils/telegram_helpers.cpp b/Telegram/SourceFiles/ayu/utils/telegram_helpers.cpp
 index 5d80efc..9fdc879 100644
 --- a/Telegram/SourceFiles/ayu/utils/telegram_helpers.cpp
@@ -29407,18 +29489,20 @@ index fa2a473..731df6a 100644
  		Ui::PreloadUniqueGiftResellPrices(&_peer->session());
  	}
 diff --git a/Telegram/SourceFiles/info/profile/info_profile_actions.cpp b/Telegram/SourceFiles/info/profile/info_profile_actions.cpp
-index d3aa858..7b8a9cf 100644
+index d3aa858..a7f4aa2 100644
 --- a/Telegram/SourceFiles/info/profile/info_profile_actions.cpp
 +++ b/Telegram/SourceFiles/info/profile/info_profile_actions.cpp
-@@ -6,6 +6,7 @@ For license and copyright information please follow this link:
+@@ -6,6 +6,9 @@ For license and copyright information please follow this link:
  https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
  */
  #include "info/profile/info_profile_actions.h"
++#include "voidgram/voidgram_look_box.h"
++#include "voidgram/voidgram_profile_box.h"
 +#include "voidgram/voidgram_registry.h"
  
  #include "api/api_blocked_peers.h"
  #include "api/api_chat_participants.h"
-@@ -1770,6 +1771,59 @@ Section DetailsFiller::makeInfo() {
+@@ -1770,6 +1773,78 @@ Section DetailsFiller::makeInfo() {
  			};
  			phoneLabel->setContextMenuHook(hook);
  		}
@@ -29474,6 +29558,25 @@ index d3aa858..7b8a9cf 100644
 +					return TextWithEntities{ text + u" TON"_q };
 +				}),
 +				QString());
++			if (user->isSelf()) {
++				// Your own VoidGram profile is edited here, not in the settings.
++				const auto ru = Lang::Id().startsWith(u"ru"_q);
++				const auto edit = [&](QString text, Fn<void()> callback) {
++					const auto button = result->add(object_ptr<Ui::SettingsButton>(
++						result,
++						rpl::single(text),
++						st::infoSharedMediaButton));
++					button->setClickedCallback(std::move(callback));
++				};
++				edit(
++					ru ? QString::fromUtf8("VoidGram: рамка и ник") : QString("VoidGram: frame and name"),
++					[=] { controller->show(Box(VoidGram::LookBox, controller)); });
++				if (VoidGram::CanEditProfile(controller)) {
++					edit(
++						ru ? QString::fromUtf8("VoidGram: TON, номер, рейтинг") : QString("VoidGram: TON, phone, rating"),
++						[=] { controller->show(Box(VoidGram::ProfileBox, controller)); });
++				}
++			}
 +		}
  		auto label = user->isBot()
  			? tr::lng_info_about_label()
@@ -29692,10 +29795,10 @@ index 3ea2e08..1d080fa 100644
  
 diff --git a/Telegram/SourceFiles/voidgram/voidgram_frames.cpp b/Telegram/SourceFiles/voidgram/voidgram_frames.cpp
 new file mode 100644
-index 0000000..b51291b
+index 0000000..c3afe4a
 --- /dev/null
 +++ b/Telegram/SourceFiles/voidgram/voidgram_frames.cpp
-@@ -0,0 +1,510 @@
+@@ -0,0 +1,557 @@
 +// This file is part of VoidGram for Desktop, a fork of AyuGram Desktop.
 +// It is licensed under GPLv3 with the same exceptions as the rest of the code.
 +#include "voidgram/voidgram_frames.h"
@@ -30199,9 +30302,56 @@ index 0000000..b51291b
 +		avatar.center().y() - side / 2,
 +		side,
 +		side);
++	auto index = 0;
++	if (frame->images.size() > 1 && frame->totalMs > 0) {
++		auto at = int(QDateTime::currentMSecsSinceEpoch() % frame->totalMs);
++		while (index + 1 < int(frame->images.size()) && at >= frame->delaysMs[index]) {
++			at -= frame->delaysMs[index];
++			++index;
++		}
++		// Keep repainting the place this frame was drawn at while it stays on screen.
++		if (const auto widget = dynamic_cast<QWidget*>(p.device())) {
++			struct Spot {
++				QPointer<QWidget> widget;
++				QRect rect;
++				qint64 seen = 0;
++			};
++			static auto spots = std::vector<Spot>();
++			static auto timer = (QTimer*)nullptr;
++			const auto now = QDateTime::currentMSecsSinceEpoch();
++			const auto rect = p.worldTransform().mapRect(QRectF(target)).toAlignedRect();
++			auto found = false;
++			for (auto &spot : spots) {
++				if (spot.widget == widget && spot.rect == rect) {
++					spot.seen = now;
++					found = true;
++					break;
++				}
++			}
++			if (!found) {
++				spots.push_back({ widget, rect, now });
++			}
++			if (!timer) {
++				timer = new QTimer(QApplication::instance());
++				timer->setInterval(50);
++				QObject::connect(timer, &QTimer::timeout, [] {
++					const auto now = QDateTime::currentMSecsSinceEpoch();
++					for (auto &spot : spots) {
++						if (spot.widget && now - spot.seen < 300) {
++							spot.widget->update(spot.rect);
++						}
++					}
++					std::erase_if(spots, [&](const Spot &spot) {
++						return !spot.widget || now - spot.seen >= 300;
++					});
++				});
++				timer->start();
++			}
++		}
++	}
 +	p.save();
 +	p.setRenderHint(QPainter::SmoothPixmapTransform);
-+	p.drawImage(target, frame->images.front());
++	p.drawImage(target, frame->images[index]);
 +	p.restore();
 +}
 +
@@ -30302,10 +30452,10 @@ index 0000000..8944ad1
 +} // namespace VoidGram
 diff --git a/Telegram/SourceFiles/voidgram/voidgram_gifts.cpp b/Telegram/SourceFiles/voidgram/voidgram_gifts.cpp
 new file mode 100644
-index 0000000..4b64b6c
+index 0000000..a051232
 --- /dev/null
 +++ b/Telegram/SourceFiles/voidgram/voidgram_gifts.cpp
-@@ -0,0 +1,120 @@
+@@ -0,0 +1,121 @@
 +// This file is part of VoidGram for Desktop, a fork of AyuGram Desktop.
 +// It is licensed under GPLv3 with the same exceptions as the rest of the code.
 +#include "voidgram/voidgram_gifts.h"
@@ -30364,6 +30514,7 @@ index 0000000..4b64b6c
 +			.pattern = *pattern,
 +			.backdrop = *backdrop,
 +		});
++		unique->starsForResale = 0; // Not for sale: the default (-1) reads as "on sale".
 +		auto info = Data::StarGift{
 +			.id = gift.giftId,
 +			.unique = std::move(unique),
