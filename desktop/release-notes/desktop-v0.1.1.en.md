@@ -1,0 +1,10 @@
+- New settings as in the iOS client: categories Privacy, Messages, Filters, General, Appearance, More; monochrome icons; a rounded logo.
+- "Frame and name" and "TON, phone, rating" moved from the settings into your own profile.
+- Sponsors' frames are visible to everyone, in the chat list, messages, settings and side menu, and they are animated.
+- Fixed saving the frame and name: the `NO_INIT_DATA` error (a fallback sign-in request, as on iOS).
+- Fixed the bubble skin near the tail: the ticks and the corner no longer overlap.
+- NFTs from the registry are no longer marked "on sale".
+- Removed AyuGram's support section (its author's wallets and Boosty).
+- App icons as in the iOS client; choosing an icon changes the launcher icon on Linux.
+- Everything is named VoidGram: the About window, menus, launcher entry, crash window, Russian strings.
+- One-command install; the entry also appears in Hyprland launchers.
