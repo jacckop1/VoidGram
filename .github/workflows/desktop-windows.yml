@@ -30,6 +30,25 @@ jobs:
         shell: cmd
 
     steps:
+      # The compile writes tens of GB of objects and PDBs next to the cached libraries, and the
+      # runner's disk is nearly full out of the box: drop what the build does not use.
+      - name: Free up disk space.
+        shell: pwsh
+        run: |
+          Get-PSDrive -PSProvider FileSystem | Format-Table Name, @{n='FreeGB';e={[math]::Round($_.Free/1GB,1)}}, @{n='UsedGB';e={[math]::Round($_.Used/1GB,1)}}
+          $paths = @(
+            'C:\Android', 'C:\Program Files (x86)\Android', 'C:\Program Files\Android',
+            'C:\hostedtoolcache\windows\Java_Temurin-Hotspot_jdk', 'C:\hostedtoolcache\windows\Java_Adopt_jdk',
+            'C:\hostedtoolcache\windows\Java_Zulu_jdk', 'C:\hostedtoolcache\windows\Ruby', 'C:\hostedtoolcache\windows\go',
+            'C:\hostedtoolcache\windows\PyPy', 'C:\hostedtoolcache\windows\Python', 'C:\hostedtoolcache\windows\node',
+            'C:\Program Files\MongoDB', 'C:\Program Files\PostgreSQL', 'C:\Program Files\Azure Cosmos DB Emulator',
+            'C:\Program Files (x86)\Windows Kits\8.1', 'C:\Julia', 'C:\Strawberry', 'C:\SeleniumWebDrivers',
+            'C:\Program Files\Google\Chrome', 'C:\Program Files (x86)\Microsoft\Edge', 'C:\Rust', 'C:\Users\runneradmin\.rustup',
+            'C:\Users\runneradmin\.cargo', 'C:\npm', 'C:\Miniconda'
+          )
+          foreach ($p in $paths) { if (Test-Path $p) { Remove-Item -Recurse -Force $p -ErrorAction SilentlyContinue } }
+          Get-PSDrive -PSProvider FileSystem | Format-Table Name, @{n='FreeGB';e={[math]::Round($_.Free/1GB,1)}}
+
       - name: Prepare directories.
         run: |
           mkdir %userprofile%\TBuild\Libraries
@@ -223,6 +242,11 @@ jobs:
           -D DESKTOP_APP_DISABLE_CRASH_REPORTS=ON
 
           cmake --build ..\out --config Release --parallel
+
+      - name: Disk after the build.
+        if: always()
+        shell: pwsh
+        run: Get-PSDrive -PSProvider FileSystem | Format-Table Name, @{n='FreeGB';e={[math]::Round($_.Free/1GB,1)}}
 
       - name: Pack.
         shell: bash
