@@ -104,23 +104,32 @@ jobs:
       - name: Qt cache.
         uses: actions/cache/restore@v4
         with:
-          path: ${{ runner.temp }}/cache-qt
+          path: ${{ runner.temp }}/cache
           key: linux-qt-${{ hashFiles('desktop/VERSION', 'desktop/ci/**') }}
           fail-on-cache-miss: true
+
+      - name: Keep the Qt cache.
+        run: mv "${{ runner.temp }}/cache" "${{ runner.temp }}/cache-qt"
 
       - name: WebRTC cache.
         uses: actions/cache/restore@v4
         with:
-          path: ${{ runner.temp }}/cache-webrtc
+          path: ${{ runner.temp }}/cache
           key: linux-webrtc-${{ hashFiles('desktop/VERSION', 'desktop/ci/**') }}
           fail-on-cache-miss: true
+
+      - name: Keep the WebRTC cache.
+        run: mv "${{ runner.temp }}/cache" "${{ runner.temp }}/cache-webrtc"
 
       - name: FFmpeg cache.
         uses: actions/cache/restore@v4
         with:
-          path: ${{ runner.temp }}/cache-ffmpeg
+          path: ${{ runner.temp }}/cache
           key: linux-ffmpeg-${{ hashFiles('desktop/VERSION', 'desktop/ci/**') }}
           fail-on-cache-miss: true
+
+      - name: Keep the FFmpeg cache.
+        run: mv "${{ runner.temp }}/cache" "${{ runner.temp }}/cache-ffmpeg"
 
       - name: Build environment.
         uses: docker/build-push-action@v6
