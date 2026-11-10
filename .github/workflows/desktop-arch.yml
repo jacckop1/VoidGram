@@ -66,6 +66,7 @@ jobs:
       - name: Pack the installed tree
         run: |
           cp desktop/install.sh "$WORK_DIR/install/install.sh"
+          chmod +x "$WORK_DIR/install/install.sh"
           tar --zstd -cf voidgram-desktop-linux-x86_64.tar.zst -C "$WORK_DIR/install" .
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -99,5 +100,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cp desktop/install.sh install.sh
+          chmod +x install.sh
           gh release create "$GITHUB_REF_NAME" voidgram-desktop-linux-x86_64.tar.zst install.sh \
             --title "VoidGram Desktop ${GITHUB_REF_NAME#desktop-}" --notes-file notes.md
