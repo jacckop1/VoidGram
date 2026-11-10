@@ -16,5 +16,8 @@ for patch in "$root"/desktop/patches/*.patch; do
 done
 git diff --cached --check
 cd Telegram/build/docker/centos_env
-DEBUG= python3 gen_dockerfile.py > Dockerfile
+# The template is the Dockerfile itself, so the output is captured before the file is overwritten.
+generated="$(DEBUG= python3 gen_dockerfile.py)"
+printf '%s\n' "$generated" > Dockerfile
+test "$(wc -l < Dockerfile)" -gt 100
 rm -rf __pycache__
