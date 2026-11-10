@@ -50,8 +50,13 @@ for r in json.load(sys.stdin):
         print(r.get("body") or "")')"
   here="$(mktemp -d)"
   trap 'rm -rf "$here"' EXIT
-  echo "Downloading VoidGram ${tag#desktop-} (about 100 MB)..."
-  curl -fSL --progress-bar "https://github.com/$repo/releases/download/$tag/voidgram-desktop-linux-x86_64.tar.zst" \
+  # Arch gets the build made on Arch; every other distribution the generic one (Debian, Ubuntu, Fedora...).
+  asset="voidgram-desktop-linux-generic-x86_64.tar.zst"
+  if [ -f /etc/arch-release ] || grep -qiE '^ID(_LIKE)?=.*arch' /etc/os-release 2>/dev/null; then
+    asset="voidgram-desktop-linux-x86_64.tar.zst"
+  fi
+  echo "Downloading VoidGram ${tag#desktop-} ($asset)..."
+  curl -fSL --progress-bar "https://github.com/$repo/releases/download/$tag/$asset" \
     | tar --zstd -xf - -C "$here"
 fi
 

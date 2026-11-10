@@ -65,3 +65,16 @@ Windows x64 and keeps `VoidGram.exe` in `voidgram-desktop-windows-x64.zip`. A co
 ffmpeg and WebRTC from source and takes hours; the libraries are cached, so a run that hits the
 time limit saves them and the next run goes on from there. Fill `release_tag` to attach the zip to a
 release.
+
+## Debian, Ubuntu, Fedora and the rest
+
+`.github/workflows/desktop-linux.yml` ("Run workflow") builds one generic Linux binary in AyuGram's
+Docker environment (Rocky Linux 8) and packs it as `voidgram-desktop-linux-generic-x86_64.tar.zst`
+(for `install.sh`), `voidgram-desktop-x86_64.deb` and `voidgram-desktop-x86_64.rpm`:
+
+```
+sudo apt install ./voidgram-desktop-x86_64.deb     # Debian, Ubuntu, Mint, ...
+sudo dnf install ./voidgram-desktop-x86_64.rpm     # Fedora, RHEL, openSUSE (zypper), ...
+```
+
+Qt, FFmpeg and WebRTC build in parallel jobs and are cached; the last job builds the client.

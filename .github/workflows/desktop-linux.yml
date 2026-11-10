@@ -1,0 +1,188 @@
+name: VoidGram Desktop (Linux, Debian and Fedora families)
+
+# The generic Linux build: AyuGram Desktop's own Docker environment (Rocky Linux 8, every library
+# built from source), so one binary runs on Debian, Ubuntu, Fedora, openSUSE, Arch and the rest.
+# It is packed as a tarball for install.sh, a .deb and an .rpm. The three heavy libraries (Qt,
+# FFmpeg, WebRTC) build in parallel jobs and are cached, then the last job builds the client.
+# Run it by hand; give a release tag (desktop-vX.Y.Z) to attach the packages to that release.
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing release tag to attach the packages to (leave empty to keep them as an artifact only)
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+concurrency:
+  group: desktop-linux
+  cancel-in-progress: false
+
+env:
+  IMAGE_TAG: tdesktop:centos_env
+
+jobs:
+  libraries:
+    name: ${{ matrix.stage }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    strategy:
+      fail-fast: false
+      matrix:
+        stage: [qt, webrtc, ffmpeg]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free up some disk space.
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be
+        with:
+          tool-cache: true
+          large-packages: false
+
+      - name: Source, patches and Dockerfile.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-jinja2
+          bash desktop/ci/prepare-source.sh
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Cache.
+        id: cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/cache
+          key: linux-${{ matrix.stage }}-${{ hashFiles('desktop/VERSION', 'desktop/ci/**') }}
+
+      - name: Build the library.
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: docker/build-push-action@v6
+        env:
+          DOCKER_BUILD_RECORD_UPLOAD: false
+        with:
+          context: src/Telegram/build/docker/centos_env
+          target: ${{ matrix.stage }}
+          cache-from: type=local,src=${{ runner.temp }}/cache
+          cache-to: type=local,dest=${{ runner.temp }}/cache-new,mode=max
+
+      - name: Move the cache.
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          rm -rf "${{ runner.temp }}/cache"
+          mv "${{ runner.temp }}/cache-new" "${{ runner.temp }}/cache"
+
+      - name: Save the cache.
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/cache
+          key: ${{ steps.cache.outputs.cache-primary-key }}
+
+  build:
+    needs: libraries
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free up some disk space.
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be
+        with:
+          tool-cache: true
+          large-packages: false
+
+      - name: Source, patches and Dockerfile.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-jinja2
+          bash desktop/ci/prepare-source.sh
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Qt cache.
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/cache-qt
+          key: linux-qt-${{ hashFiles('desktop/VERSION', 'desktop/ci/**') }}
+          fail-on-cache-miss: true
+
+      - name: WebRTC cache.
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/cache-webrtc
+          key: linux-webrtc-${{ hashFiles('desktop/VERSION', 'desktop/ci/**') }}
+          fail-on-cache-miss: true
+
+      - name: FFmpeg cache.
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/cache-ffmpeg
+          key: linux-ffmpeg-${{ hashFiles('desktop/VERSION', 'desktop/ci/**') }}
+          fail-on-cache-miss: true
+
+      - name: Build environment.
+        uses: docker/build-push-action@v6
+        env:
+          DOCKER_BUILD_RECORD_UPLOAD: false
+        with:
+          context: src/Telegram/build/docker/centos_env
+          load: true
+          tags: ${{ env.IMAGE_TAG }}
+          cache-from: |
+            type=local,src=${{ runner.temp }}/cache-qt
+            type=local,src=${{ runner.temp }}/cache-webrtc
+            type=local,src=${{ runner.temp }}/cache-ffmpeg
+
+      - name: Stub DesktopPrivate.
+        run: |
+          mkdir -p DesktopPrivate
+          random_key() {
+            printf -- '-----BEGIN RSA PRIVATE KEY-----\\n%s\\n-----END RSA PRIVATE KEY-----\\n' \
+              "$(head -c 96 /dev/urandom | base64 | tr -d '\n')"
+          }
+          printf 'const char *PrivateKey = "%s";\nconst char *PrivateBetaKey = "%s";\n' \
+            "$(random_key)" "$(random_key)" > DesktopPrivate/packer_private.h
+          printf 'static const char *AlphaPrivateKey = "%s";\n' \
+            "$(random_key)" > DesktopPrivate/alpha_private.h
+
+      - name: VoidGram build.
+        env:
+          TDESKTOP_API_ID: ${{ secrets.TELEGRAM_API_ID }}
+          TDESKTOP_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
+        run: |
+          test -n "$TDESKTOP_API_ID" && test -n "$TDESKTOP_API_HASH" \
+            || { echo "::error::Set TELEGRAM_API_ID and TELEGRAM_API_HASH in the repository Actions secrets."; exit 1; }
+          cd src
+          docker run --rm \
+            -u $(id -u) \
+            -v $PWD:/usr/src/tdesktop \
+            -v $GITHUB_WORKSPACE/DesktopPrivate:/usr/src/DesktopPrivate \
+            -e CONFIG=Release \
+            $IMAGE_TAG \
+            /usr/src/tdesktop/Telegram/build/docker/centos_env/build.sh \
+            -D CMAKE_CONFIGURATION_TYPES=Release \
+            -D TDESKTOP_API_ID=$TDESKTOP_API_ID \
+            -D TDESKTOP_API_HASH=$TDESKTOP_API_HASH \
+            -D DESKTOP_APP_DISABLE_AUTOUPDATE=ON \
+            -D DESKTOP_APP_DISABLE_CRASH_REPORTS=ON
+
+      - name: Pack.
+        run: |
+          sudo apt-get install -y ruby rpm dpkg-dev
+          sudo gem install --no-document fpm
+          bash desktop/ci/package-linux.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: voidgram-desktop-linux-generic
+          path: dist/*
+          if-no-files-found: error
+
+      - name: Attach to the release.
+        if: inputs.release_tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.release_tag }}
+        run: gh release upload "$TAG" dist/* --clobber -R "$GITHUB_REPOSITORY"
