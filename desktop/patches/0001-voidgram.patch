@@ -287,7 +287,7 @@ index 9c0462e..b2f0256 100644
  			Ui::NameTextOptions());
  	}
 diff --git a/Telegram/SourceFiles/info/profile/info_profile_actions.cpp b/Telegram/SourceFiles/info/profile/info_profile_actions.cpp
-index d3aa858..f8aa055 100644
+index d3aa858..7b8a9cf 100644
 --- a/Telegram/SourceFiles/info/profile/info_profile_actions.cpp
 +++ b/Telegram/SourceFiles/info/profile/info_profile_actions.cpp
 @@ -6,6 +6,7 @@ For license and copyright information please follow this link:
@@ -298,7 +298,7 @@ index d3aa858..f8aa055 100644
  
  #include "api/api_blocked_peers.h"
  #include "api/api_chat_participants.h"
-@@ -1770,6 +1771,44 @@ Section DetailsFiller::makeInfo() {
+@@ -1770,6 +1771,59 @@ Section DetailsFiller::makeInfo() {
  			};
  			phoneLabel->setContextMenuHook(hook);
  		}
@@ -320,6 +320,21 @@ index d3aa858..f8aa055 100644
 +						? TextWithEntities{ entry.label->text }
 +						: TextWithEntities();
 +				}));
++			addInfoOneLine(
++				rpl::single(Lang::Id().startsWith(u"ru"_q)
++					? QString::fromUtf8("Юзернеймы VoidGram")
++					: QString("VoidGram usernames")),
++				given([](const VoidGram::Entry &entry) {
++					if (!entry.cosmetics || entry.cosmetics->usernames.isEmpty()) {
++						return TextWithEntities();
++					}
++					auto names = QStringList();
++					for (const auto &name : entry.cosmetics->usernames) {
++						names.push_back('@' + name);
++					}
++					return TextWithEntities{ names.join(u", "_q) };
++				}),
++				QString());
 +			addInfoOneLine(
 +				rpl::single(QString("TON")),
 +				given([](const VoidGram::Entry &entry) {
@@ -478,7 +493,7 @@ index a37e994..960d96f 100644
  	Ui::PeerUserpicView _userpicView;
  	InMemoryKey _userpicUniqueKey;
 diff --git a/Telegram/SourceFiles/info/profile/info_profile_values.cpp b/Telegram/SourceFiles/info/profile/info_profile_values.cpp
-index 40cc5e2..1348b5f 100644
+index 40cc5e2..8b38ffd 100644
 --- a/Telegram/SourceFiles/info/profile/info_profile_values.cpp
 +++ b/Telegram/SourceFiles/info/profile/info_profile_values.cpp
 @@ -36,6 +36,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
@@ -506,36 +521,6 @@ index 40cc5e2..1348b5f 100644
  		return tr::marked(Ui::FormatPhone(user->phone()));
  	});
  }
-@@ -220,12 +228,26 @@ rpl::producer<std::vector<TextWithEntities>> UsernamesValue(
- 		}) | ranges::to_vector;
- 	};
- 	auto value = rpl::merge(
--		peer->session().changes().peerFlagsValue(peer, UpdateFlag::Username),
--		peer->session().changes().peerFlagsValue(peer, UpdateFlag::Usernames)
-+		peer->session().changes().peerFlagsValue(
-+			peer,
-+			UpdateFlag::Username) | rpl::to_empty,
-+		peer->session().changes().peerFlagsValue(
-+			peer,
-+			UpdateFlag::Usernames) | rpl::to_empty,
-+		VoidGram::Registry::instance().changes()
- 	);
- 	if (const auto user = peer->asUser()) {
- 		return std::move(value) | rpl::map([=] {
--			return map(user->usernames());
-+			auto result = map(user->usernames());
-+			// Names the VoidGram owner gave are listed after the real ones, as plain text.
-+			const auto entry = VoidGram::Registry::instance().find(
-+				user->id.value & PeerId::kChatTypeMask);
-+			if (entry && entry->cosmetics) {
-+				for (const auto &given : entry->cosmetics->usernames) {
-+					result.push_back(tr::marked('@' + given));
-+				}
-+			}
-+			return result;
- 		});
- 	} else if (const auto channel = peer->asChannel()) {
- 		return std::move(value) | rpl::map([=] {
 diff --git a/Telegram/SourceFiles/voidgram/voidgram_frames.cpp b/Telegram/SourceFiles/voidgram/voidgram_frames.cpp
 new file mode 100644
 index 0000000..eb6912a
