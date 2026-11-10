@@ -11250,7 +11250,7 @@ zA5wd);@QF3tbZQ7To%2w&|h=wpOt=x3cYonbpC(;pTWf;dimP@2|5f63=E#GelF{r
 G5}E*ccKOi&
 
 diff --git a/Telegram/Resources/langs/lang.strings b/Telegram/Resources/langs/lang.strings
-index 7f49208..29cba7c 100644
+index 7f49208..a32967c 100644
 --- a/Telegram/Resources/langs/lang.strings
 +++ b/Telegram/Resources/langs/lang.strings
 @@ -8780,7 +8780,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
@@ -11350,7 +11350,7 @@ index 7f49208..29cba7c 100644
 +"ayu_IntroAbout" = "Welcome to the VoidGram Desktop.\nMake Telegram your own.";
  "ayu_AboutText1" = "ToS breaking Telegram client based on {api_link}.";
 -"ayu_UpdateAyuGram" = "Update AyuGram";
-+"ayu_UpdateVoidGram" = "Update VoidGram";
++"ayu_UpdateAyuGram" = "Update VoidGram";
  "ayu_UtilityRestartRequired" = "The app will close in 5 seconds.";
 diff --git a/Telegram/SourceFiles/ayu/ayu_infra.cpp b/Telegram/SourceFiles/ayu/ayu_infra.cpp
 index 2fa8a2a..0ddf137 100644
