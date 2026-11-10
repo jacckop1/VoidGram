@@ -28516,6 +28516,25 @@ index f727092..6a047e0 100644
 +    <file alias="com.voidgram.desktop.desktop">../../../../lib/xdg/com.voidgram.desktop.desktop</file>
    </qresource>
  </RCC>
+diff --git a/Telegram/Resources/winrc/Telegram.rc b/Telegram/Resources/winrc/Telegram.rc
+index 07c4d93..7c4874e 100644
+--- a/Telegram/Resources/winrc/Telegram.rc
++++ b/Telegram/Resources/winrc/Telegram.rc
+@@ -60,11 +60,11 @@ BEGIN
+     BEGIN
+         BLOCK "040904b0"
+         BEGIN
+-            VALUE "CompanyName", "Radolyn Labs"
+-            VALUE "FileDescription", "AyuGram Desktop"
++            VALUE "CompanyName", "VoidGram"
++            VALUE "FileDescription", "VoidGram Desktop"
+             VALUE "FileVersion", "7.2.9.0"
+             VALUE "LegalCopyright", "Copyright (C) 2014-2026"
+-            VALUE "ProductName", "AyuGram Desktop"
++            VALUE "ProductName", "VoidGram Desktop"
+             VALUE "ProductVersion", "7.2.9.0"
+         END
+     END
 diff --git a/Telegram/SourceFiles/ayu/ayu_infra.cpp b/Telegram/SourceFiles/ayu/ayu_infra.cpp
 index 2fa8a2a..fe3b2eb 100644
 --- a/Telegram/SourceFiles/ayu/ayu_infra.cpp

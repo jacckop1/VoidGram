@@ -57,3 +57,11 @@ changes. `./install.sh --uninstall` removes it again.
 A release is made by tagging a tested commit `desktop-vX.Y.Z` and pushing the tag: the workflow
 builds, then publishes the archive, `install.sh` and notes made by `desktop/changelog.sh` (one
 line per commit that touched `desktop/` since the previous `desktop-v*` tag).
+
+## Windows
+
+`.github/workflows/desktop-windows.yml` ("Run workflow") builds the same patched AyuGram Desktop for
+Windows x64 and keeps `VoidGram.exe` in `voidgram-desktop-windows-x64.zip`. A cold run builds Qt,
+ffmpeg and WebRTC from source and takes hours; the libraries are cached, so a run that hits the
+time limit saves them and the next run goes on from there. Fill `release_tag` to attach the zip to a
+release.
