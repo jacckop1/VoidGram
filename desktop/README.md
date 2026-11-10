@@ -11,11 +11,20 @@ badge server as the iPhone app and checks the same Ed25519 signature on the regi
 - **Name styles** (font, colour, glow) in the profile, in message authors' names and in the chat list.
 - **Profile details the owner gave**: a number shown instead of the real one, extra usernames, a TON
   balance, a line under the name, and a rating that replaces Telegram's.
+- **Glowing names** (a faint light in the name's colour) in messages, the chat list and the profile.
+- **Glowing reactions**: a light behind each reaction in the colour of the reaction.
+- **Unique gifts (NFTs)** the owner gave a profile, listed first among its gifts in the gifts tab
+  (only shown where the profile's gifts tab is shown).
+- **Bubble skins**: a sponsor's messages get the grey skin with the VoidGram mark; the owner's, a gold frame.
+- **Name and logo**: the app is VoidGram everywhere you see it (window, tray, settings, icon).
 - **Settings ▸ VoidGram ▸ "VoidGram: frame and name"** (sponsors and the owner): choose a frame,
   its size and the name style, with a preview made of the avatar. The choice goes to the badge server,
   signed in with Mini App data Telegram gives for `@AyuZayavka_bot`.
 
-Not ported: granted gifts and NFTs on profiles, bubble skins, the gold bubble frame.
+Not ported: the player, lyrics and the other phone-only features.
+
+The data folder is still the one AyuGram Desktop uses (`~/.local/share/AyuGramDesktop`), so this client and
+AyuGram Desktop share one login and settings. Run only one of them at a time.
 
 ## Build (Arch)
 
@@ -30,7 +39,7 @@ TDESKTOP_API_ID=... TDESKTOP_API_HASH=... desktop/build-arch.sh
 ```
 
 Your own api id and hash come from <https://my.telegram.org>. `JOBS` (default 4) limits the compile
-jobs; each needs about 2 GB of memory. The binary is `~/.cache/voidgram-desktop/build/bin/Telegram`.
+jobs; each needs about 2 GB of memory. The binary is `~/.cache/voidgram-desktop/build/bin/VoidGram`.
 
 ## Changing the patches
 
