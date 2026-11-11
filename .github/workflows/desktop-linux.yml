@@ -164,11 +164,18 @@ jobs:
           test -n "$TDESKTOP_API_ID" && test -n "$TDESKTOP_API_HASH" \
             || { echo "::error::Set TELEGRAM_API_ID and TELEGRAM_API_HASH in the repository Actions secrets."; exit 1; }
           cd src
+          # The image's flags turn on LTO, whose final link needs more than the runner's 16 GB (lto1 is
+          # killed): the client is built and linked without it. The libraries stay as they were built.
+          no_lto() { docker run --rm $IMAGE_TAG printenv "$1" 2>/dev/null | sed -e 's/-flto=auto//g' -e 's/-ffat-lto-objects//g'; }
+          CF="$(no_lto CFLAGS)"; CXXF="$(no_lto CXXFLAGS)"; LDF="$(no_lto LDFLAGS)"
           docker run --rm \
             -u $(id -u) \
             -v $PWD:/usr/src/tdesktop \
             -v $GITHUB_WORKSPACE/DesktopPrivate:/usr/src/DesktopPrivate \
             -e CONFIG=Release \
+            -e CFLAGS="$CF -fno-lto" \
+            -e CXXFLAGS="$CXXF -fno-lto" \
+            -e LDFLAGS="$LDF -fno-lto" \
             $IMAGE_TAG \
             /usr/src/tdesktop/Telegram/build/docker/centos_env/build.sh \
             -D CMAKE_CONFIGURATION_TYPES=Release \
