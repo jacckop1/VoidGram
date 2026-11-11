@@ -35,6 +35,6 @@ description="VoidGram Desktop, a Telegram client with ghost mode, saved history 
 common=(-s dir -C root --name voidgram --version "$version" --iteration "$release" --architecture x86_64
   --maintainer "VoidGram <https://github.com/neosay-dev/VoidGram>" --url "https://github.com/neosay-dev/VoidGram"
   --license GPL-3.0 --description "$description" usr)
-fpm -t deb "${common[@]}" -p dist/voidgram-desktop-x86_64.deb
-fpm -t rpm "${common[@]}" -p dist/voidgram-desktop-x86_64.rpm
+fpm -t deb -p dist/voidgram-desktop-x86_64.deb "${common[@]}"
+fpm -t rpm -p dist/voidgram-desktop-x86_64.rpm "${common[@]}"
 ls -la dist
