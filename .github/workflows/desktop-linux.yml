@@ -54,7 +54,8 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ${{ runner.temp }}/cache
-          key: linux-${{ matrix.stage }}-${{ hashFiles('desktop/VERSION', 'desktop/ci/**') }}
+          key: linux-${{ matrix.stage }}-${{ hashFiles('desktop/VERSION', 'desktop/ci/prepare-source.sh') }}
+          restore-keys: linux-${{ matrix.stage }}-
 
       - name: Build the library.
         if: steps.cache.outputs.cache-hit != 'true'
@@ -105,7 +106,8 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ${{ runner.temp }}/cache
-          key: linux-qt-${{ hashFiles('desktop/VERSION', 'desktop/ci/**') }}
+          key: linux-qt-${{ hashFiles('desktop/VERSION', 'desktop/ci/prepare-source.sh') }}
+          restore-keys: linux-qt-
           fail-on-cache-miss: true
 
       - name: Keep the Qt cache.
@@ -115,7 +117,8 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ${{ runner.temp }}/cache
-          key: linux-webrtc-${{ hashFiles('desktop/VERSION', 'desktop/ci/**') }}
+          key: linux-webrtc-${{ hashFiles('desktop/VERSION', 'desktop/ci/prepare-source.sh') }}
+          restore-keys: linux-webrtc-
           fail-on-cache-miss: true
 
       - name: Keep the WebRTC cache.
@@ -125,7 +128,8 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ${{ runner.temp }}/cache
-          key: linux-ffmpeg-${{ hashFiles('desktop/VERSION', 'desktop/ci/**') }}
+          key: linux-ffmpeg-${{ hashFiles('desktop/VERSION', 'desktop/ci/prepare-source.sh') }}
+          restore-keys: linux-ffmpeg-
           fail-on-cache-miss: true
 
       - name: Keep the FFmpeg cache.
