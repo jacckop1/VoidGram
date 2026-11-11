@@ -37,8 +37,8 @@ common=(-s dir -C root --name voidgram --version "$version" --iteration "$releas
   --license GPL-3.0 --description "$description" usr)
 # What the binary loads at run time besides glibc (readelf -d: NEEDED); the rest is built into it.
 deb_deps=(-d libpango-1.0-0 -d libpangocairo-1.0-0 -d libpangoft2-1.0-0 -d libcairo2
-  -d "libglib2.0-0t64 | libglib2.0-0" -d libfontconfig1 -d libfreetype6 -d libgl1 -d libegl1 -d libxkbcommon-x11-0)
-rpm_deps=(-d pango -d cairo -d glib2 -d fontconfig -d freetype -d mesa-libGL -d mesa-libEGL -d libxkbcommon-x11)
+  -d "libglib2.0-0t64 | libglib2.0-0" -d "libgtk-3-0t64 | libgtk-3-0" -d libfontconfig1 -d libfreetype6 -d libgl1 -d libegl1 -d libxkbcommon-x11-0)
+rpm_deps=(-d pango -d cairo -d glib2 -d gtk3 -d fontconfig -d freetype -d mesa-libGL -d mesa-libEGL -d libxkbcommon-x11)
 fpm -t deb -p dist/voidgram-desktop-x86_64.deb "${deb_deps[@]}" "${common[@]}"
 fpm -t rpm -p dist/voidgram-desktop-x86_64.rpm "${rpm_deps[@]}" "${common[@]}"
 ls -la dist
