@@ -254,7 +254,10 @@ jobs:
         run: |
           cd "$TBUILD/$REPO_NAME/out/Release"
           ls -la
-          exe="$(ls VoidGram.exe Telegram.exe 2>/dev/null | head -n 1)"
+          exe=""
+          for name in VoidGram.exe Telegram.exe; do
+            if [ -f "$name" ]; then exe="$name"; break; fi
+          done
           test -n "$exe" || { echo "::error::no exe in out/Release"; exit 1; }
           mkdir -p pack/VoidGram
           cp "$exe" pack/VoidGram/VoidGram.exe
