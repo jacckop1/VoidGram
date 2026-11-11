@@ -1,0 +1,177 @@
+diff --git a/Telegram/CMakeLists.txt b/Telegram/CMakeLists.txt
+index b7d5969..54f3466 100644
+--- a/Telegram/CMakeLists.txt
++++ b/Telegram/CMakeLists.txt
+@@ -2462,60 +2462,27 @@ elseif (APPLE)
+     target_link_frameworks(Telegram PRIVATE CoreBluetooth)
+     target_link_frameworks_weak(Telegram PRIVATE UserNotifications)
+ 
+-    set(icons_path ${CMAKE_CURRENT_SOURCE_DIR}/Telegram/Images.xcassets)
+-    if (CMAKE_GENERATOR STREQUAL Xcode)
+-        set(ayugram_icons
+-            Default
+-            Alt
+-            Discord
+-            Spotify
+-            Extera
+-            Nothing
+-            Bard
+-            Yaplus
+-            Win95
+-            Chibi
+-            Chibi2
+-            Extera2
++    find_program(ICONUTIL iconutil REQUIRED)
++    find_program(SIPS sips REQUIRED)
++    set(ayugram_icons Default Alt Discord Spotify Extera Nothing Bard Yaplus Win95 Chibi Chibi2 Extera2)
++    foreach (icon ${ayugram_icons})
++        string(TOLOWER "${icon}" icon_directory)
++        set(icon_source "${res_loc}/art/ayu/${icon_directory}/app.png")
++        set(icon_output "${CMAKE_CURRENT_BINARY_DIR}/AppIcon-${icon}.icns")
++        add_custom_command(
++            OUTPUT "${icon_output}"
++            COMMAND ${CMAKE_COMMAND}
++                "-DICON_SOURCE=${icon_source}"
++                "-DICON_OUTPUT=${icon_output}"
++                "-DICONUTIL=${ICONUTIL}"
++                "-DSIPS=${SIPS}"
++                -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/voidgram_mac_icon.cmake"
++            DEPENDS "${icon_source}" "${CMAKE_CURRENT_SOURCE_DIR}/cmake/voidgram_mac_icon.cmake"
++            VERBATIM
+         )
+-
+-        foreach (icon ${ayugram_icons})
+-            target_add_resource(Telegram "${CMAKE_CURRENT_SOURCE_DIR}/Telegram/AppIcon-${icon}.icon")
+-            set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/Telegram/AppIcon-${icon}.icon" PROPERTIES
+-                    XCODE_EXPLICIT_FILE_TYPE "folder.iconcomposer.icon"
+-            )
+-        endforeach()
+-    else()
+-        set(icon_path ${icons_path}/Icon.iconset)
+-        find_program(ICONUTIL iconutil)
+-        find_program(PNG2ICNS png2icns)
+-        if (ICONUTIL)
+-            add_custom_command(
+-                OUTPUT AppIcon-Default.icns
+-                COMMAND ${ICONUTIL}
+-                ARGS
+-                    --convert icns
+-                    --output AppIcon-Default.icns
+-                    ${icon_path}
+-            )
+-        elseif (PNG2ICNS)
+-            add_custom_command(
+-                OUTPUT AppIcon-Default.icns
+-                COMMAND ${PNG2ICNS}
+-                ARGS
+-                    AppIcon-Default.icns
+-                    ${icon_path}/icon_16x16.png
+-                    ${icon_path}/icon_32x32.png
+-                    ${icon_path}/icon_128x128.png
+-                    ${icon_path}/icon_256x256.png
+-                    ${icon_path}/icon_512x512.png
+-            )
+-        endif()
+-        if (ICONUTIL OR PNG2ICNS)
+-            set_source_files_properties(AppIcon-Default.icns PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+-            target_add_resource(Telegram AppIcon-Default.icns)
+-        endif()
+-    endif()
++        set_source_files_properties("${icon_output}" PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
++        target_sources(Telegram PRIVATE "${icon_output}")
++    endforeach()
+ 
+     set(lang_packs
+         en
+@@ -2588,9 +2555,9 @@ if (build_macstore)
+     )
+ else()
+     if (CMAKE_GENERATOR STREQUAL Xcode)
+-        set(bundle_identifier "one.ayugram.AyuGramDesktop$<$<CONFIG:Debug>:Debug>")
++        set(bundle_identifier "com.voidgram.desktop$<$<CONFIG:Debug>:.debug>")
+     else()
+-        set(bundle_identifier "one.ayugram.AyuGramDesktop")
++        set(bundle_identifier "com.voidgram.desktop")
+     endif()
+     set(bundle_entitlements "Telegram.entitlements")
+     set(output_name "VoidGram")
+@@ -2610,9 +2577,6 @@ set_target_properties(Telegram PROPERTIES
+     XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER ${bundle_identifier}
+     XCODE_ATTRIBUTE_CURRENT_PROJECT_VERSION ${desktop_app_version_string}
+     XCODE_ATTRIBUTE_PRODUCT_NAME ${output_name}
+-    XCODE_ATTRIBUTE_ASSETCATALOG_COMPILER_APPICON_NAME AppIcon-Default
+-    XCODE_ATTRIBUTE_ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES "AppIcon-Alt AppIcon-Discord AppIcon-Spotify AppIcon-Extera AppIcon-Nothing AppIcon-Bard AppIcon-Yaplus AppIcon-Win95 AppIcon-Chibi AppIcon-Chibi2 AppIcon-Extera2"
+-    XCODE_ATTRIBUTE_ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS YES
+     XCODE_ATTRIBUTE_ENABLE_HARDENED_RUNTIME YES
+     XCODE_ATTRIBUTE_COMBINE_HIDPI_IMAGES YES
+     XCODE_ATTRIBUTE_COPY_PHASE_STRIP NO
+diff --git a/Telegram/SourceFiles/platform/mac/global_menu_mac.mm b/Telegram/SourceFiles/platform/mac/global_menu_mac.mm
+index 7802c5b..a6a06a5 100644
+--- a/Telegram/SourceFiles/platform/mac/global_menu_mac.mm
++++ b/Telegram/SourceFiles/platform/mac/global_menu_mac.mm
+@@ -421,7 +421,7 @@ void Manager::buildAppleMenu(QMenu *main) {
+ 			});
+ 		};
+ 		const auto about = main->addAction(
+-			u"About AyuGram"_q,
++			u"About VoidGram"_q,
+ 			std::move(callback));
+ 		about->setMenuRole(QAction::AboutQtRole);
+ 	}
+@@ -723,7 +723,7 @@ void Manager::buildWindowMenu(QMenu *window) {
+ }
+ 
+ void Manager::buildMenu() {
+-	buildAppleMenu(_menuBar->addMenu(u"AyuGram"_q));
++	buildAppleMenu(_menuBar->addMenu(u"VoidGram"_q));
+ 	buildFileMenu(_menuBar->addMenu(u"File"_q));
+ 	buildEditMenu(_menuBar->addMenu(u"Edit"_q));
+ 
+diff --git a/Telegram/SourceFiles/platform/mac/window_title_mac.mm b/Telegram/SourceFiles/platform/mac/window_title_mac.mm
+index 8d3d2b7..316e894 100644
+--- a/Telegram/SourceFiles/platform/mac/window_title_mac.mm
++++ b/Telegram/SourceFiles/platform/mac/window_title_mac.mm
+@@ -79,7 +79,7 @@ void PreviewWindowTitle(Painter &p, const style::palette &palette, QRect body, i
+ 	p.setPen(st::titleFgActive[palette]);
+ 	p.setFont(font);
+ 
+-	p.drawText(titleRect, u"AyuGram"_q, style::al_center);
++	p.drawText(titleRect, u"VoidGram"_q, style::al_center);
+ 
+ 	auto isGraphite = ([NSColor currentControlTint] == NSGraphiteControlTint);
+ 	auto buttonSkip = 8;
+diff --git a/Telegram/cmake/voidgram_mac_icon.cmake b/Telegram/cmake/voidgram_mac_icon.cmake
+new file mode 100644
+index 0000000..216d9db
+--- /dev/null
++++ b/Telegram/cmake/voidgram_mac_icon.cmake
+@@ -0,0 +1,29 @@
++set(iconset "${ICON_OUTPUT}.iconset")
++file(MAKE_DIRECTORY "${iconset}")
++foreach(size 16 32 128 256 512)
++    foreach(scale 1 2)
++        math(EXPR pixels "${size} * ${scale}")
++        if(scale EQUAL 2)
++            set(suffix "@2x")
++        else()
++            set(suffix "")
++        endif()
++        execute_process(
++            COMMAND "${SIPS}" -z ${pixels} ${pixels} "${ICON_SOURCE}"
++                --out "${iconset}/icon_${size}x${size}${suffix}.png"
++            RESULT_VARIABLE status
++            OUTPUT_QUIET
++        )
++        if(NOT status EQUAL 0)
++            message(FATAL_ERROR "Cannot resize ${ICON_SOURCE}: ${status}")
++        endif()
++    endforeach()
++endforeach()
++execute_process(
++    COMMAND "${ICONUTIL}" --convert icns --output "${ICON_OUTPUT}" "${iconset}"
++    RESULT_VARIABLE status
++)
++if(NOT status EQUAL 0)
++    message(FATAL_ERROR "Cannot create ${ICON_OUTPUT}: ${status}")
++endif()
++file(REMOVE_RECURSE "${iconset}")

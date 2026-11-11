@@ -1,6 +1,6 @@
 # VoidGram Desktop
 
-VoidGram for Linux is AyuGram Desktop (`VERSION`) with the patches in `patches/`. It reads the same
+VoidGram for Windows, Linux and macOS is AyuGram Desktop (`VERSION`) with the patches in `patches/`. It reads the same
 badge server as the iPhone app and checks the same Ed25519 signature on the registry.
 
 ## What it does
@@ -23,8 +23,10 @@ badge server as the iPhone app and checks the same Ed25519 signature on the regi
 
 Not ported: the player, lyrics and the other phone-only features.
 
-The data folder is still the one AyuGram Desktop uses (`~/.local/share/AyuGramDesktop`), so this client and
-AyuGram Desktop share one login and settings. Run only one of them at a time.
+On Linux, the data folder is still the one AyuGram Desktop uses (`~/.local/share/AyuGramDesktop`), so this client and
+AyuGram Desktop share one login and settings. Run only one of them at a time. On macOS, VoidGram uses
+`~/Library/Application Support/VoidGram Desktop/` and a separate bundle identifier, `com.voidgram.desktop`;
+it does not automatically copy an existing AyuGram account.
 
 ## Build (Arch)
 
@@ -85,3 +87,72 @@ sudo dnf install ./voidgram-desktop-x86_64.rpm     # Fedora, RHEL, openSUSE (zyp
 ```
 
 Qt, FFmpeg and WebRTC build in parallel jobs and are cached; the last job builds the client.
+
+## macOS (Intel and Apple Silicon)
+
+The macOS port uses the same `VERSION` and patches as Windows and Linux. Its extra patch,
+`patches/0002-macos.patch`, changes the native application menu and title preview, assigns the
+VoidGram bundle identifier, and generates all twelve macOS `.icns` resources from the patched
+VoidGram PNGs. The default Finder icon and alternate Dock icons therefore use the same artwork
+as the other desktop versions. This does not add the phone-only features listed above.
+
+### GitHub Actions
+
+Pushing changes to the macOS build scripts, desktop patches or `VERSION` starts
+**VoidGram Desktop (macOS)** automatically. You can also run it manually in Actions
+(`.github/workflows/desktop-macos.yml`) once the workflow is on the default branch. It uses the
+[GitHub macOS 26 image](https://github.com/actions/runner-images/blob/main/images/macos/macos-26-Readme.md)
+with Xcode and needs the existing `TELEGRAM_API_ID` and `TELEGRAM_API_HASH` repository secrets.
+No Apple developer certificate is required for this development package.
+
+The workflow builds a universal application containing `x86_64` and `arm64`, verifies its bundle
+identity, icon, architecture slices and ad hoc signature, then uploads:
+
+- `voidgram-desktop-macos-universal.dmg`, with an Applications shortcut;
+- `voidgram-desktop-macos-universal.zip`, preserving the application bundle and permissions;
+- `SHA256SUMS-macos.txt`.
+
+Leave `release_tag` empty for artifacts only, or provide an existing release tag to attach these
+files to that release. Dependency preparation has a time limit and saves its progress before
+the client build. If preparation times out, check that the cache was saved, then rerun. A compile
+error needs fixing; rerunning does not fix it.
+
+These packages use an ad hoc signature. They are not signed with Developer ID or notarized, so
+macOS may require approval in **System Settings → Privacy & Security → Open Anyway**. Distribution
+with normal Gatekeeper acceptance still requires Developer ID signing and Apple notarization.
+
+### Local build on a Mac
+
+Install full Xcode, select its developer directory and install the build tools:
+
+```sh
+sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+brew install git automake libtool cmake wget pkg-config gnu-tar ninja nasm meson
+TDESKTOP_API_ID=... TDESKTOP_API_HASH=... bash desktop/build-macos.sh
+```
+
+Use your own API credentials from <https://my.telegram.org>. The default working directory is
+`~/.cache/voidgram-desktop-macos`, separate from the Linux source and build. Libraries are built
+for both architectures; allow at least the upstream estimate of 55 GB of free disk space and
+several hours for the first run. `JOBS` defaults to 3. `BUILD_TYPE=Debug` selects a Debug build;
+the default is Release. A new patch set requires a fresh `WORK_DIR`, or moving the old `src`
+directory aside; the script refuses to overwrite a different patch set or unstaged source edits.
+
+Individual phases can be resumed with `prepare`, `libraries`, `build` or `package`:
+
+```sh
+bash desktop/build-macos.sh prepare
+bash desktop/build-macos.sh libraries
+TDESKTOP_API_ID=... TDESKTOP_API_HASH=... bash desktop/build-macos.sh build
+bash desktop/build-macos.sh package
+```
+
+The app is at `~/.cache/voidgram-desktop-macos/src/out/Release/VoidGram.app`, and packages are in
+`~/.cache/voidgram-desktop-macos/dist`. `DIST_DIR` overrides the package directory. Packaging copies
+the built app before applying an ad hoc signature, preserving the original build output.
+
+### Validation status
+
+The macOS patch was checked against the pinned AyuGram v7.2.9 source together with the existing
+desktop patch. Shell/YAML checks and simulated packaging checks run on Linux; compiling, launching,
+calls, notifications, Dock icon switching and installation still need verification on a Mac.
