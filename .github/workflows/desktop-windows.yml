@@ -213,6 +213,14 @@ jobs:
 
       # The compile writes tens of GB of objects and PDBs; C: is nearly full out of the box and D: has
       # ~150 GB, so the build tree (out) lives on D:. The libraries stay where they were cached.
+      # The compiler's precompiled headers need more memory than the runner's 16 GB: a big pagefile on D:.
+      - name: Pagefile.
+        uses: al-cheb/configure-pagefile-action@v1.4
+        with:
+          minimum-size: 24GB
+          maximum-size: 40GB
+          disk-root: "D:"
+
       - name: Build tree on the big disk.
         run: |
           mkdir D:\voidgram-out
@@ -234,7 +242,7 @@ jobs:
           -D DESKTOP_APP_DISABLE_AUTOUPDATE=ON ^
           -D DESKTOP_APP_DISABLE_CRASH_REPORTS=ON
 
-          cmake --build ..\out --config Release --parallel
+          cmake --build ..\out --config Release --parallel -- /p:CL_MPCount=3
 
       - name: Disk after the build.
         if: always()
