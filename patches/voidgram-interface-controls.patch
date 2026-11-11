@@ -142,7 +142,7 @@ index 4716128..1c6e807 100644
 +            link(3, .interface, ru ? "Интерфейс и чаты" : "Interface & Chats"),
 +            link(3, .navigationAndComposer, ru ? "Навигация и редактор" : "Navigation and composer"),
              .header(4, 30, AyuStrings.links.text(ru)),
-             link(4, .channel, AyuStrings.channel.text(ru), "@neosay1337"),
+             link(4, .channel, AyuStrings.channel.text(ru), "@voidgram_offic"),
              link(4, .sourceCode, AyuStrings.sourceCode.text(ru), "GitHub")
 diff --git a/submodules/SettingsUI/Sources/AyuSettingsController.swift b/submodules/SettingsUI/Sources/AyuSettingsController.swift
 index 7561b28..31226f6 100644

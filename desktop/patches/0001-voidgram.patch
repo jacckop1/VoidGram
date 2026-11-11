@@ -32251,7 +32251,7 @@ index 762bd56..6b3a4af 100644
  
  QImage loadPreview(const QString& name);
 diff --git a/Telegram/SourceFiles/ayu/ui/components/avatar_corners_preview.cpp b/Telegram/SourceFiles/ayu/ui/components/avatar_corners_preview.cpp
-index 6783c21..dda5056 100644
+index 6783c21..6551fe0 100644
 --- a/Telegram/SourceFiles/ayu/ui/components/avatar_corners_preview.cpp
 +++ b/Telegram/SourceFiles/ayu/ui/components/avatar_corners_preview.cpp
 @@ -30,7 +30,7 @@ AvatarCornersPreview::AvatarCornersPreview(
@@ -32277,7 +32277,7 @@ index 6783c21..dda5056 100644
  	if (e->button() == Qt::LeftButton && rect().contains(e->pos())) {
  		_controller->showPeerByLink(Window::PeerByLinkInfo{
 -			.usernameOrId = u"AyuGramReleases"_q,
-+			.usernameOrId = u"neosay1337"_q,
++			.usernameOrId = u"voidgram_offic"_q,
  		});
  	}
  }
@@ -32285,7 +32285,7 @@ index 6783c21..dda5056 100644
  void AvatarCornersPreview::resolveChannel() {
  	const auto session = &_controller->session();
 -	_peer = session->data().peerByUsername(u"AyuGramReleases"_q);
-+	_peer = session->data().peerByUsername(u"neosay1337"_q);
++	_peer = session->data().peerByUsername(u"voidgram_offic"_q);
  	if (_peer) {
  		_peer->loadUserpic();
  		subscribeToUpdates();
@@ -32294,7 +32294,7 @@ index 6783c21..dda5056 100644
  	session->api().request(MTPcontacts_ResolveUsername(
  		MTP_flags(0),
 -		MTP_string(u"AyuGramReleases"_q),
-+		MTP_string(u"neosay1337"_q),
++		MTP_string(u"voidgram_offic"_q),
  		MTP_string()
  	)).done([=](const MTPcontacts_ResolvedPeer &result) {
  		if (const auto strong = weak.get()) {
@@ -32414,7 +32414,7 @@ index 657677d..62bed26 100644
  
  AyuGhost::AyuGhost(
 diff --git a/Telegram/SourceFiles/ayu/ui/settings/settings_main.cpp b/Telegram/SourceFiles/ayu/ui/settings/settings_main.cpp
-index a4b1e7a..b1078c8 100644
+index a4b1e7a..eaeb97e 100644
 --- a/Telegram/SourceFiles/ayu/ui/settings/settings_main.cpp
 +++ b/Telegram/SourceFiles/ayu/ui/settings/settings_main.cpp
 @@ -8,6 +8,7 @@
@@ -32541,11 +32541,11 @@ index a4b1e7a..b1078c8 100644
 +		.id = u"voidgram/channel"_q,
 +		.title = Text("Канал", "Channel"),
 +		.icon = Colored(&st::menuIconChannel, 0x007AFF),
-+		.label = rpl::single(QString("@neosay1337")),
++		.label = rpl::single(QString("@voidgram_offic")),
  		.onClick = [=] {
  			controller->showPeerByLink(Window::PeerByLinkInfo{
 -				.usernameOrId = QString("ayugram"),
-+				.usernameOrId = QString("neosay1337"),
++				.usernameOrId = QString("voidgram_offic"),
  			});
  		},
  	});
@@ -32583,12 +32583,12 @@ index a4b1e7a..b1078c8 100644
 +		.id = u"voidgram/group"_q,
 +		.title = Text("Официальная группа", "Official group"),
 +		.icon = Colored(&st::menuIconChats, 0x2AABEE),
-+		.label = rpl::single(QString("@jailbreak_iPhone_iPad_android")),
++		.label = rpl::single(QString("@voidgram_offic")),
  		.onClick = [=] {
 -			QDesktopServices::openUrl(
 -				QString("https://docs.ayugram.one"));
 +			controller->showPeerByLink(Window::PeerByLinkInfo{
-+				.usernameOrId = QString("jailbreak_iPhone_iPad_android"),
++				.usernameOrId = QString("voidgram_offic"),
 +			});
  		},
  	});
@@ -32656,7 +32656,7 @@ index 5d80efc..9fdc879 100644
  	if (const auto it = badges.find(peerId); it != badges.end()) {
  		return it->second;
 diff --git a/Telegram/SourceFiles/boxes/about_box.cpp b/Telegram/SourceFiles/boxes/about_box.cpp
-index 31c3139..5214b3e 100644
+index 31c3139..ebafd3e 100644
 --- a/Telegram/SourceFiles/boxes/about_box.cpp
 +++ b/Telegram/SourceFiles/boxes/about_box.cpp
 @@ -56,7 +56,7 @@ rpl::producer<TextWithEntities> Text() {
@@ -32673,13 +32673,13 @@ index 31c3139..5214b3e 100644
  	box->addButton(tr::lng_close(), [=] { box->closeBox(); });
  	box->addLeftButton(
 -		rpl::single(QString("@AyuGramReleases")),
-+		rpl::single(QString("@neosay1337")),
++		rpl::single(QString("@voidgram_offic")),
  		[box, controller]
  		{
  			box->closeBox();
  			controller->showPeerByLink(Window::PeerByLinkInfo{
 -				.usernameOrId = QString("ayugramreleases"),
-+				.usernameOrId = QString("neosay1337"),
++				.usernameOrId = QString("voidgram_offic"),
  			});
  		});
  

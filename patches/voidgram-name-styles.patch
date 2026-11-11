@@ -455,7 +455,7 @@ index 3be9fcac..2aafb44c 100644
  /// Raised with every VoidGram update.
  func ayuAppVersion() -> String {
 -    return "27.8.1"
-+    return "27.8.2"
++    return "27.8.3"
  }
  
  /// The version with the build number of this IPA, as the settings header shows it.

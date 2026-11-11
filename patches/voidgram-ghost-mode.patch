@@ -69549,7 +69549,7 @@ index 00000000..786127bd
 +            link(3, .filters, AyuStrings.filters.text(ru)),
 +            .badgedLink(3, AyuGramRow.nearbyContact.rawValue, icons[.nearbyContact] ?? nil, AyuStrings.nearbyContact.text(ru), "BETA", 0xFFD60A),
 +            .header(4, 30, AyuStrings.links.text(ru)),
-+            link(4, .channel, AyuStrings.channel.text(ru), "@neosay1337"),
++            link(4, .channel, AyuStrings.channel.text(ru), "@voidgram_offic"),
 +            link(4, .sourceCode, AyuStrings.sourceCode.text(ru), "GitHub")
 +        ]
 +        let data = ItemListPresentationData(presentationData)
@@ -69739,7 +69739,7 @@ index 00000000..786127bd
 +}
 +
 +func ayuOpenChannel(context: AccountContext, navigation: NavigationController?) {
-+    context.sharedContext.openExternalUrl(context: context, urlContext: .generic, url: "https://t.me/neosay1337", forceExternal: false, presentationData: context.sharedContext.currentPresentationData.with { $0 }, navigationController: navigation, dismissInput: {})
++    context.sharedContext.openExternalUrl(context: context, urlContext: .generic, url: "https://t.me/voidgram_offic", forceExternal: false, presentationData: context.sharedContext.currentPresentationData.with { $0 }, navigationController: navigation, dismissInput: {})
 +}
 +
 +/// `archiveOnly`: the saved messages themselves, on their own page so the settings page

@@ -59,7 +59,7 @@ index 268e7799..40fdf419 100644
 -            context.sharedContext.applicationBindings.openUrl("https://github.com/dsn2fvhmn4-lgtm/AyuGramm-IOS")
 +            context.sharedContext.applicationBindings.openUrl("https://github.com/neosay-dev/VoidGram")
          case .officialGroup:
-             context.sharedContext.openExternalUrl(context: context, urlContext: .generic, url: "https://t.me/jailbreak_iPhone_iPad_android", forceExternal: false, presentationData: context.sharedContext.currentPresentationData.with { $0 }, navigationController: navigation?(), dismissInput: {})
+             context.sharedContext.openExternalUrl(context: context, urlContext: .generic, url: "https://t.me/voidgram_offic", forceExternal: false, presentationData: context.sharedContext.currentPresentationData.with { $0 }, navigationController: navigation?(), dismissInput: {})
          case .creditMurkGitHub, .creditMurkTelegram, .creditNeistvGitHub, .creditNeistvTelegram, .creditOwnerGitHub, .creditOwnerTelegram:
 diff --git a/submodules/SettingsUI/Sources/AyuToolsController.swift b/submodules/SettingsUI/Sources/AyuToolsController.swift
 index 837f2ee1..3b2fea6e 100644

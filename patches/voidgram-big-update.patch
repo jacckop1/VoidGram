@@ -80992,7 +80992,7 @@ index e2236c5f..0dee1d96 100644
          case .sourceCode:
              context.sharedContext.applicationBindings.openUrl("https://github.com/dsn2fvhmn4-lgtm/AyuGramm-IOS")
 +        case .officialGroup:
-+            context.sharedContext.openExternalUrl(context: context, urlContext: .generic, url: "https://t.me/jailbreak_iPhone_iPad_android", forceExternal: false, presentationData: context.sharedContext.currentPresentationData.with { $0 }, navigationController: navigation?(), dismissInput: {})
++            context.sharedContext.openExternalUrl(context: context, urlContext: .generic, url: "https://t.me/voidgram_offic", forceExternal: false, presentationData: context.sharedContext.currentPresentationData.with { $0 }, navigationController: navigation?(), dismissInput: {})
 +        case .creditMurkGitHub, .creditMurkTelegram, .creditNeistvGitHub, .creditNeistvTelegram, .creditOwnerGitHub, .creditOwnerTelegram:
 +            if let url = row.creditURL {
 +                context.sharedContext.openExternalUrl(context: context, urlContext: .generic, url: url, forceExternal: false, presentationData: context.sharedContext.currentPresentationData.with { $0 }, navigationController: navigation?(), dismissInput: {})
@@ -81061,16 +81061,16 @@ index e2236c5f..0dee1d96 100644
 -            link(3, .interface, ru ? "Интерфейс и чаты" : "Interface & Chats"),
 -            link(3, .navigationAndComposer, ru ? "Навигация и редактор" : "Navigation and composer"),
 -            .header(4, 30, AyuStrings.links.text(ru)),
--            link(4, .channel, AyuStrings.channel.text(ru), "@neosay1337"),
+-            link(4, .channel, AyuStrings.channel.text(ru), "@voidgram_offic"),
 -            link(4, .sourceCode, AyuStrings.sourceCode.text(ru), "GitHub")
 +            .header(1, 0, ru ? "КАТЕГОРИИ" : "CATEGORIES"),
 +        ] + AyuCategory.allCases.map { category in
 +            AyuSectionedEntry.link(1, category.rawValue, category.icon, category.title(ru), "")
 +        } + [
 +            .header(6, 70, AyuStrings.links.text(ru)),
-+            link(6, .channel, AyuStrings.channel.text(ru), "@neosay1337"),
++            link(6, .channel, AyuStrings.channel.text(ru), "@voidgram_offic"),
 +            link(6, .sourceCode, AyuStrings.sourceCode.text(ru), "GitHub"),
-+            link(6, .officialGroup, ru ? "Официальная группа" : "Official group", "@jailbreak_iPhone_iPad_android"),
++            link(6, .officialGroup, ru ? "Официальная группа" : "Official group", "@voidgram_offic"),
          ]
 +        // Hidden until unlocked by five taps on the version (and a relaunch).
 +        if AyuDeveloperSettings.unlockedAtLaunch {

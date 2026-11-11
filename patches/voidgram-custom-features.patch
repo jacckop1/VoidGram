@@ -105,7 +105,7 @@ index 786127bdf2..47161282b0 100644
 +            link(3, .interface, ru ? "Интерфейс и чаты" : "Interface & Chats"),
              .badgedLink(3, AyuGramRow.nearbyContact.rawValue, icons[.nearbyContact] ?? nil, AyuStrings.nearbyContact.text(ru), "BETA", 0xFFD60A),
              .header(4, 30, AyuStrings.links.text(ru)),
-             link(4, .channel, AyuStrings.channel.text(ru), "@neosay1337"),
+             link(4, .channel, AyuStrings.channel.text(ru), "@voidgram_offic"),
 diff --git a/submodules/SettingsUI/Sources/AyuSettingsController.swift b/submodules/SettingsUI/Sources/AyuSettingsController.swift
 index d0e6ae2a..58937fbd 100644
 --- a/submodules/SettingsUI/Sources/AyuSettingsController.swift
