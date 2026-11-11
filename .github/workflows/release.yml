@@ -1,17 +1,31 @@
-# Publishes a GitHub release from an IPA that a finished "Native iOS port" run already built:
-# no rebuild. The notes come from docs/releases/v<version>.md; the IPA's size and SHA-256 are
-# appended to them, and the release is tagged at the commit that run built.
+# Publishes one GitHub release from builds that finished runs already made: no rebuild. The iOS
+# IPA is required; the desktop builds (Windows, Arch, the generic Linux .deb/.rpm/tarball) are added
+# when their run IDs are given, together with desktop/install.sh, the installer for every Linux.
+# The notes come from docs/releases/v<version>.md; sizes and SHA-256 of every file are appended,
+# and the release is tagged at the commit the iOS run built.
 name: Release
 
 on:
   workflow_dispatch:
     inputs:
+      version:
+        description: VoidGram version, e.g. 27.8.3
+        required: true
       run_id:
         description: ID of the successful "Native iOS port" run whose IPA to publish
         required: true
-      version:
-        description: VoidGram version, e.g. 27.6.9
-        required: true
+      windows_run:
+        description: ID of a "VoidGram Desktop (Windows)" run (optional)
+        required: false
+        default: ''
+      arch_run:
+        description: ID of a "VoidGram Desktop (Arch Linux)" run (optional)
+        required: false
+        default: ''
+      linux_run:
+        description: ID of a run with voidgram-desktop-linux-generic (Linux build or repack, optional)
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -27,7 +41,28 @@ jobs:
           run-id: ${{ inputs.run_id }}
           github-token: ${{ github.token }}
           pattern: VoidGram-ios-*
-          path: artifact
+          path: artifact/ios
+      - if: inputs.windows_run != ''
+        uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ inputs.windows_run }}
+          github-token: ${{ github.token }}
+          name: voidgram-desktop-windows-x64
+          path: artifact/windows
+      - if: inputs.arch_run != ''
+        uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ inputs.arch_run }}
+          github-token: ${{ github.token }}
+          name: voidgram-desktop-linux-x86_64
+          path: artifact/arch
+      - if: inputs.linux_run != ''
+        uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ inputs.linux_run }}
+          github-token: ${{ github.token }}
+          name: voidgram-desktop-linux-generic
+          path: artifact/linux
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
@@ -37,10 +72,17 @@ jobs:
           set -euo pipefail
           notes="docs/releases/v${VERSION}.md"
           test -f "$notes" || { echo "::error::$notes is missing"; exit 1; }
-          ipa=$(find artifact -name '*.ipa' | head -n 1)
+          mkdir -p files
+          ipa=$(find artifact/ios -name '*.ipa' | head -n 1)
           test -n "$ipa" || { echo "::error::run $RUN_ID has no IPA"; exit 1; }
-          asset="VoidGram-${VERSION}.ipa"
-          cp "$ipa" "$asset"
+          cp "$ipa" "files/VoidGram-${VERSION}.ipa"
+          find artifact/windows artifact/arch artifact/linux -type f \( -name '*.zip' -o -name '*.tar.zst' -o -name '*.deb' -o -name '*.rpm' \) -exec cp {} files/ \; 2>/dev/null || true
+          # Generic tarballs carry their own install.sh; the release one is the current installer.
+          if ls files/*.tar.zst files/*.deb files/*.rpm >/dev/null 2>&1; then
+            cp desktop/install.sh files/install.sh
+            chmod +x files/install.sh
+          fi
+          ls -la files
           sha=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}" --jq .head_sha)
           number=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}" --jq .run_number)
           {
@@ -48,8 +90,12 @@ jobs:
             echo
             echo "---"
             echo
-            echo "- IPA: **${asset}**, unsigned, build ${number}, commit \`${sha}\`"
-            echo "- Size: $(stat -c %s "$asset") bytes"
-            echo "- SHA-256: \`$(sha256sum "$asset" | cut -d' ' -f1)\`"
+            echo "iOS: unsigned IPA, build ${number}, commit \`${sha}\`"
+            echo
+            echo "| File | Size | SHA-256 |"
+            echo "|---|---|---|"
+            for f in files/*; do
+              echo "| $(basename "$f") | $(numfmt --to=iec --suffix=B "$(stat -c %s "$f")") | \`$(sha256sum "$f" | cut -d' ' -f1)\` |"
+            done
           } > release-notes.md
-          gh release create "v${VERSION}" "$asset" --target "$sha" --title "VoidGram ${VERSION}" --notes-file release-notes.md --latest
+          gh release create "v${VERSION}" files/* --target "$sha" --title "VoidGram ${VERSION}" --notes-file release-notes.md --latest

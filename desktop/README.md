@@ -50,7 +50,14 @@ The build script resets the tree to the tag and applies every patch, so a second
 
 ## Install and release
 
-Unpack a build and run `./install.sh`: it copies the program and icons to `~/.local`, adds
+One command installs on any Linux; `desktop/install.sh` reads `/etc/os-release` and picks the
+build: the Arch archive into `~/.local` on the Arch family, the `.deb` through apt on Debian and
+Ubuntu, the `.rpm` through dnf or zypper on Fedora, RHEL and openSUSE, and the generic archive into
+`~/.local` anywhere else (`--local` skips the package manager, `--distro ID` overrides the guess):
+
+    curl -fsSL https://raw.githubusercontent.com/neosay-dev/VoidGram/main/desktop/install.sh | bash
+
+Or unpack a build and run `./install.sh`: it copies the program and icons to `~/.local`, adds
 "VoidGram" to the application menu (window class `com.voidgram.desktop`) and prints the list of
 changes. `./install.sh --uninstall` removes it again.
 
