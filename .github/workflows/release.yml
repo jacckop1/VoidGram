@@ -2,7 +2,8 @@
 # IPA is required; the desktop builds (Windows, Arch, the generic Linux .deb/.rpm/tarball) are added
 # when their run IDs are given, together with desktop/install.sh, the installer for every Linux.
 # The notes come from docs/releases/v<version>.md; sizes and SHA-256 of every file are appended,
-# and the release is tagged at the commit the iOS run built.
+# and the release is tagged at the commit this workflow runs on (main): GITHUB_TOKEN may not create a
+# tag at an older commit whose workflow files differ from main's. The iOS run's commit is in the notes.
 name: Release
 
 on:
@@ -98,4 +99,4 @@ jobs:
               echo "| $(basename "$f") | $(numfmt --to=iec --suffix=B "$(stat -c %s "$f")") | \`$(sha256sum "$f" | cut -d' ' -f1)\` |"
             done
           } > release-notes.md
-          gh release create "v${VERSION}" files/* --target "$sha" --title "VoidGram ${VERSION}" --notes-file release-notes.md --latest
+          gh release create "v${VERSION}" files/* --target "$GITHUB_SHA" --title "VoidGram ${VERSION}" --notes-file release-notes.md --latest
