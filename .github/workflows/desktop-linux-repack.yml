@@ -1,0 +1,56 @@
+name: VoidGram Desktop (Linux packages from a finished build)
+
+# Packs the binary of a finished "VoidGram Desktop (Linux...)" run again (new .deb, .rpm and tarball)
+# without compiling: a few minutes instead of hours. Use it after a change to desktop/ci/package-linux.sh.
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: ID of the finished Linux build run whose binary to pack
+        required: true
+      release_tag:
+        description: Existing release tag to attach the packages to (leave empty for an artifact only)
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  repack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Source tree (for the desktop file and the icons).
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-jinja2 ruby rpm dpkg-dev
+          bash desktop/ci/prepare-source.sh
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: voidgram-linux-binary
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ github.token }}
+          path: src/out/Release
+
+      - name: Pack.
+        run: |
+          chmod +x src/out/Release/VoidGram
+          sudo gem install --no-document fpm
+          bash desktop/ci/package-linux.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: voidgram-desktop-linux-generic
+          path: dist/*
+          if-no-files-found: error
+
+      - name: Attach to the release.
+        if: inputs.release_tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.release_tag }}
+        run: gh release upload "$TAG" dist/* --clobber -R "$GITHUB_REPOSITORY"
