@@ -200,7 +200,9 @@ jobs:
 
       - name: Assemble the universal app.
         run: |
+          set -o pipefail
           app="$(bash desktop/ci/assemble-macos.sh | tail -n 1)"
+          test -d "$app"
           echo "APP=$app" >> $GITHUB_ENV
 
       # The packaging of desktop/ci/package-macos.sh: ad hoc signature (no Apple Developer ID, which

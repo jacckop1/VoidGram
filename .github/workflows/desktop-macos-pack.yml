@@ -40,7 +40,9 @@ jobs:
 
       - name: Assemble the universal app.
         run: |
+          set -o pipefail
           app="$(bash desktop/ci/assemble-macos.sh | tail -n 1)"
+          test -d "$app"
           echo "APP=$app" >> $GITHUB_ENV
 
       - name: Pack.
