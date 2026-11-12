@@ -217,22 +217,16 @@ jobs:
           lipo -info "$app/Contents/MacOS/"*
           /usr/libexec/PlistBuddy -c "Print :LSMinimumSystemVersion" "$app/Contents/Info.plist" || true
 
-      # Not signed with an Apple Developer ID (there is none), only ad hoc: that is enough for Apple
-      # Silicon to run it. The first start needs a right click, Open, or:
-      #   xattr -dr com.apple.quarantine /Applications/VoidGram.app
-      - name: Ad hoc signature and the disk image.
-        run: |
-          codesign --force --deep --sign - "$APP"
-          codesign --verify --deep "$APP"
-          mkdir dmg && cp -R "$APP" dmg/VoidGram.app
-          ln -s /Applications dmg/Applications
-          hdiutil create -volname VoidGram -srcfolder dmg -ov -format UDZO voidgram-desktop-macos-universal.dmg
-          ls -la voidgram-desktop-macos-universal.dmg
+      # The packaging of desktop/ci/package-macos.sh: ad hoc signature (no Apple Developer ID, which
+      # Apple Silicon does not need to run it), a .dmg, a .zip and checksums. The first start needs a
+      # right click, Open, or:  xattr -dr com.apple.quarantine /Applications/VoidGram.app
+      - name: Pack.
+        run: APP_PATH="$PWD/$APP" DIST_DIR="$PWD/dist" bash desktop/ci/package-macos.sh
 
       - uses: actions/upload-artifact@v4
         with:
           name: voidgram-desktop-macos-universal
-          path: voidgram-desktop-macos-universal.dmg
+          path: dist/*
           if-no-files-found: error
 
       - name: Attach to the release.
@@ -240,4 +234,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.release_tag }}
-        run: gh release upload "$TAG" voidgram-desktop-macos-universal.dmg --clobber -R "$GITHUB_REPOSITORY"
+        run: gh release upload "$TAG" dist/* --clobber -R "$GITHUB_REPOSITORY"
