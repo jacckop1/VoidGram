@@ -92,7 +92,7 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 355
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
         arch: [x86_64, arm64]
     steps:
@@ -111,6 +111,12 @@ jobs:
           for patch in "$GITHUB_WORKSPACE"/voidgram/desktop/patches/*.patch; do
             git apply --index "$patch"
           done
+
+      # The newest Xcode's clang turns two warnings in AyuGram's bundled sqlite_orm.h into errors
+      # (pack indexing is a C++2c extension, a variable set but not used) because of -Werror:
+      # warnings stay warnings here.
+      - name: No -Werror.
+        run: sed -i '' '/^        -Werror$/d' AyuGramDesktop/cmake/options_mac.cmake && ! grep -n Werror AyuGramDesktop/cmake/options_mac.cmake
 
       - name: First set up.
         run: |
