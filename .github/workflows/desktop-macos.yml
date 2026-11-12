@@ -200,28 +200,8 @@ jobs:
 
       - name: Assemble the universal app.
         run: |
-          app="$(cat half/arm64/app-name)"
-          for arch in x86_64 arm64; do
-            mkdir -p unpack/$arch
-            tar -xf half/$arch/mac-$arch.tar -C unpack/$arch
-          done
-          rm -rf "$app"
-          cp -R "unpack/arm64/$app" "$app"
-          # Every executable Mach-O of the arm64 bundle that the Intel bundle has too becomes universal.
-          while IFS= read -r -d '' file; do
-            rel="${file#unpack/arm64/$app/}"
-            other="unpack/x86_64/$app/$rel"
-            info="$(lipo -info "$file" 2>/dev/null)" || continue
-            [ -f "$other" ] || { echo "::error::$rel is only in the arm64 bundle"; exit 1; }
-            lipo -create "$file" "$other" -output "$app/$rel"
-          done < <(find "unpack/arm64/$app" -type f -perm +111 -print0)
-          while IFS= read -r -d '' file; do
-            info="$(lipo -info "$file" 2>/dev/null)" || continue
-            case "$info" in *x86_64*arm64*|*arm64*x86_64*) ;; *) echo "::error::$file is not universal: $info"; exit 1;; esac
-          done < <(find "$app" -type f -perm +111 -print0)
+          app="$(bash desktop/ci/assemble-macos.sh | tail -n 1)"
           echo "APP=$app" >> $GITHUB_ENV
-          lipo -info "$app/Contents/MacOS/"*
-          /usr/libexec/PlistBuddy -c "Print :LSMinimumSystemVersion" "$app/Contents/Info.plist" || true
 
       # The packaging of desktop/ci/package-macos.sh: ad hoc signature (no Apple Developer ID, which
       # Apple Silicon does not need to run it), a .dmg, a .zip and checksums. The first start needs a

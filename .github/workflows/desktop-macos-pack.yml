@@ -1,0 +1,60 @@
+name: VoidGram Desktop (macOS from a finished build)
+
+# Assembles the universal VoidGram.app and the .dmg from the two halves of a finished "VoidGram Desktop
+# (macOS)" run, without compiling: a few minutes instead of hours. Use it after a change to
+# desktop/ci/assemble-macos.sh or package-macos.sh. The halves are kept as artifacts for two days.
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: ID of the macOS build run whose app halves to assemble
+        required: true
+      release_tag:
+        description: Existing release tag to attach the packages to (leave empty for an artifact only)
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  universal:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: voidgram-mac-x86_64
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ github.token }}
+          path: half/x86_64
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: voidgram-mac-arm64
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ github.token }}
+          path: half/arm64
+
+      - name: Assemble the universal app.
+        run: |
+          app="$(bash desktop/ci/assemble-macos.sh | tail -n 1)"
+          echo "APP=$app" >> $GITHUB_ENV
+
+      - name: Pack.
+        run: APP_PATH="$PWD/$APP" DIST_DIR="$PWD/dist" bash desktop/ci/package-macos.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: voidgram-desktop-macos-universal
+          path: dist/*
+          if-no-files-found: error
+
+      - name: Attach to the release.
+        if: inputs.release_tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.release_tag }}
+        run: gh release upload "$TAG" dist/* --clobber -R "$GITHUB_REPOSITORY"
