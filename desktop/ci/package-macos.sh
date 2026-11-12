@@ -18,7 +18,7 @@ case "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist")" in
   *) echo "Unexpected application bundle identifier." >&2; exit 1 ;;
 esac
 test -s "$app/Contents/Resources/AppIcon-Default.icns"
-lipo -verify_arch x86_64 arm64 "$app/Contents/MacOS/VoidGram"
+lipo "$app/Contents/MacOS/VoidGram" -verify_arch x86_64 arm64
 
 while IFS= read -r -d '' library; do
   codesign --force --sign - "$library"
