@@ -1,129 +1,243 @@
 name: VoidGram Desktop (macOS)
 
+# One universal VoidGram.app (Intel x86_64 and Apple Silicon arm64) for macOS 10.13 High Sierra and
+# newer: the libraries are built for macOS 10.13 (AyuGram's prepare.py, with its patched Qt for
+# High Sierra), so the app runs on Macs from 2012 (up to Catalina) as well as on macOS 26.
+# The libraries take hours to build and are cached; a run that hits the time limit saves what it
+# built, so run the workflow again to go on. Give a release tag to attach the .dmg to that release.
 on:
-  push:
-    paths:
-      - .github/workflows/desktop-macos.yml
-      - desktop/build-macos.sh
-      - desktop/ci/package-macos.sh
-      - desktop/VERSION
-      - desktop/patches/**
   workflow_dispatch:
     inputs:
       release_tag:
-        description: Existing release tag to attach packages to (empty for artifacts only)
+        description: Existing release tag to attach the .dmg to (leave empty to keep it as an artifact only)
         required: false
         default: ''
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: desktop-macos
   cancel-in-progress: false
 
+env:
+  PREPARE_PATH: "Telegram/build/prepare/prepare.py"
+
 jobs:
-  build:
-    runs-on: macos-26
+  libraries:
+    runs-on: macos-15
     timeout-minutes: 355
-    env:
-      WORK_DIR: ${{ github.workspace }}/TBuild
-      DIST_DIR: ${{ github.workspace }}/dist
-      JOBS: '3'
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: voidgram
 
-      - name: Check API credentials
-        env:
-          TDESKTOP_API_ID: ${{ secrets.TELEGRAM_API_ID }}
-          TDESKTOP_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
+      - name: Clone AyuGram Desktop and apply the patches.
         run: |
-          test -n "$TDESKTOP_API_ID" && test -n "$TDESKTOP_API_HASH" \
-            || { echo "::error::Set TELEGRAM_API_ID and TELEGRAM_API_HASH in repository Actions secrets."; exit 1; }
+          version="$(cat voidgram/desktop/VERSION)"
+          git config --global user.email "ci@voidgram.invalid"
+          git config --global user.name "VoidGram CI"
+          git clone --depth 1 --branch "$version" https://github.com/AyuGram/AyuGramDesktop.git AyuGramDesktop
+          cd AyuGramDesktop
+          git submodule update --init --depth=1
+          for patch in "$GITHUB_WORKSPACE"/voidgram/desktop/patches/*.patch; do
+            git apply --index "$patch"
+          done
 
-      - name: Build tools
+      - name: First set up.
         run: |
-          xcodebuild -version
-          brew install automake libtool cmake wget pkg-config gnu-tar ninja nasm meson
+          sudo chown -R `whoami`:admin /usr/local/share || true
+          brew update
+          brew install automake libtool meson nasm ninja pkg-config
+          sudo mdutil -a -i off || true
+          sudo xcode-select -s /Applications/Xcode.app/Contents/Developer || true
 
-      - name: Source and patches
-        run: bash desktop/build-macos.sh prepare
-
-      - name: Cache identity
-        id: identity
-        run: |
-          toolchain="$(xcodebuild -version | shasum -a 256 | awk '{print $1}')"
-          echo "prefix=macos-${RUNNER_ARCH}-$toolchain-${{ hashFiles('desktop/VERSION', 'desktop/build-macos.sh') }}" >> "$GITHUB_OUTPUT"
-
-      - name: Restore dependencies
-        id: dependencies
+      - name: Libraries cache.
+        id: cache-libs
         uses: actions/cache/restore@v4
         with:
           path: |
-            TBuild/Libraries
-            TBuild/ThirdParty
-          key: ${{ steps.identity.outputs.prefix }}-${{ github.run_id }}-${{ github.run_attempt }}
-          restore-keys: ${{ steps.identity.outputs.prefix }}-
+            Libraries
+            ThirdParty
+          key: macOS-libs-${{ hashFiles('AyuGramDesktop/Telegram/build/prepare/prepare.py') }}
+          restore-keys: macOS-libs-
 
-      - name: Prepare dependencies
-        id: libraries
-        timeout-minutes: 285
+      # A run that runs out of time still saves what it built, so the next run goes on from there.
+      - name: Libraries.
+        id: build
+        timeout-minutes: 320
         continue-on-error: true
-        run: bash desktop/build-macos.sh libraries
+        run: ./AyuGramDesktop/Telegram/build/prepare/mac.sh silent
 
-      - name: Save dependency progress
-        if: always() && steps.libraries.outcome != 'skipped'
+      - name: Free up some disk space.
+        run: find Libraries '(' '(' ! '(' -name '*.a' -o -name '*.h' -o -name '*.hpp' -o -name '*.inc' -o -name '*.cmake' -o -name '*.pc' -o -path '*/include/*' -o -path '*/objects-*' -o -path '*/cache_keys/*' -o -path '*/patches/*' -o -path '*/nv-codec-headers/*' -o -perm +111 ')' -type f ')' -o -empty ')' -delete
+
+      - name: Save the libraries cache.
+        if: always()
         uses: actions/cache/save@v4
         with:
           path: |
-            TBuild/Libraries
-            TBuild/ThirdParty
-          key: ${{ steps.dependencies.outputs.cache-primary-key }}
+            Libraries
+            ThirdParty
+          key: macOS-libs-${{ hashFiles('AyuGramDesktop/Telegram/build/prepare/prepare.py') }}-${{ github.run_id }}
 
-      - name: Require completed dependencies
-        if: steps.libraries.outcome != 'success'
+      - name: Stop if the libraries are not finished.
+        if: steps.build.outcome != 'success'
         run: |
-          echo "::error::Dependencies did not finish. Inspect the library log; if it timed out, rerun to resume cached progress."
+          echo "::error::The libraries did not finish (time limit or an error). They are cached: run the workflow again to go on."
           exit 1
 
-      - name: Build universal application
+  app:
+    needs: libraries
+    runs-on: macos-15
+    timeout-minutes: 355
+    strategy:
+      fail-fast: true
+      matrix:
+        arch: [x86_64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: voidgram
+
+      - name: Clone AyuGram Desktop and apply the patches.
+        run: |
+          version="$(cat voidgram/desktop/VERSION)"
+          git config --global user.email "ci@voidgram.invalid"
+          git config --global user.name "VoidGram CI"
+          git clone --depth 1 --branch "$version" https://github.com/AyuGram/AyuGramDesktop.git AyuGramDesktop
+          cd AyuGramDesktop
+          git submodule update --init --depth=1
+          for patch in "$GITHUB_WORKSPACE"/voidgram/desktop/patches/*.patch; do
+            git apply --index "$patch"
+          done
+
+      - name: First set up.
+        run: |
+          brew update
+          brew install automake libtool meson nasm ninja pkg-config
+          sudo xcode-select -s /Applications/Xcode.app/Contents/Developer || true
+
+      - name: Libraries cache.
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            Libraries
+            ThirdParty
+          key: macOS-libs-${{ hashFiles('AyuGramDesktop/Telegram/build/prepare/prepare.py') }}-none
+          restore-keys: macOS-libs-
+          fail-on-cache-miss: true
+
+      - name: Stub DesktopPrivate.
+        run: |
+          mkdir -p DesktopPrivate
+          random_key() {
+            printf -- '-----BEGIN RSA PRIVATE KEY-----\\n%s\\n-----END RSA PRIVATE KEY-----\\n' \
+              "$(head -c 96 /dev/urandom | base64 | tr -d '\n')"
+          }
+          printf 'const char *PrivateKey = "%s";\nconst char *PrivateBetaKey = "%s";\n' \
+            "$(random_key)" "$(random_key)" > DesktopPrivate/packer_private.h
+          printf 'static const char *AlphaPrivateKey = "%s";\n' \
+            "$(random_key)" > DesktopPrivate/alpha_private.h
+
+      - name: VoidGram build.
         env:
           TDESKTOP_API_ID: ${{ secrets.TELEGRAM_API_ID }}
           TDESKTOP_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
-        run: bash desktop/build-macos.sh build
+        run: |
+          cd AyuGramDesktop/Telegram
+          defaults write com.apple.dt.Xcode IDEBuildingContinueBuildingAfterErrors -bool YES
+          ./configure.sh \
+            -D CMAKE_CONFIGURATION_TYPES=Release \
+            -D CMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO \
+            -D CMAKE_OSX_ARCHITECTURES=${{ matrix.arch }} \
+            -D DESKTOP_APP_MAC_ARCH=${{ matrix.arch }} \
+            -D TDESKTOP_API_ID=$TDESKTOP_API_ID \
+            -D TDESKTOP_API_HASH=$TDESKTOP_API_HASH \
+            -D DESKTOP_APP_SPECIAL_TARGET=mac \
+            -D DESKTOP_APP_DISABLE_AUTOUPDATE=ON \
+            -D DESKTOP_APP_DISABLE_CRASH_REPORTS=ON
+          cmake --build ../out --config Release --parallel
 
-      - name: Archive application before packaging
-        run: ditto -c -k --sequesterRsrc --keepParent "$WORK_DIR/src/out/Release/VoidGram.app" voidgram-macos-app.zip
+      - name: Pack the half.
+        run: |
+          cd AyuGramDesktop/out/Release
+          ls
+          app="$(ls -d *.app | head -n 1)"
+          test -n "$app" || { echo "::error::no .app after the build"; exit 1; }
+          mkdir -p ../transport
+          # A tar: upload-artifact drops the executable bits and symlinks of a bundle.
+          tar -cf "../transport/mac-${{ matrix.arch }}.tar" "$app"
+          echo "$app" > ../transport/app-name
 
-      - name: Keep application before packaging
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: voidgram-macos-app
-          path: voidgram-macos-app.zip
-          if-no-files-found: error
+          name: voidgram-mac-${{ matrix.arch }}
+          path: AyuGramDesktop/out/transport/*
+          retention-days: 2
 
-      - name: Package and verify
-        run: bash desktop/build-macos.sh package
+  universal:
+    needs: app
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: voidgram-mac-x86_64
+          path: half/x86_64
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: voidgram-mac-arm64
+          path: half/arm64
+
+      - name: Assemble the universal app.
+        run: |
+          app="$(cat half/arm64/app-name)"
+          for arch in x86_64 arm64; do
+            mkdir -p unpack/$arch
+            tar -xf half/$arch/mac-$arch.tar -C unpack/$arch
+          done
+          rm -rf "$app"
+          cp -R "unpack/arm64/$app" "$app"
+          # Every executable Mach-O of the arm64 bundle that the Intel bundle has too becomes universal.
+          while IFS= read -r -d '' file; do
+            rel="${file#unpack/arm64/$app/}"
+            other="unpack/x86_64/$app/$rel"
+            info="$(lipo -info "$file" 2>/dev/null)" || continue
+            [ -f "$other" ] || { echo "::error::$rel is only in the arm64 bundle"; exit 1; }
+            lipo -create "$file" "$other" -output "$app/$rel"
+          done < <(find "unpack/arm64/$app" -type f -perm +111 -print0)
+          while IFS= read -r -d '' file; do
+            info="$(lipo -info "$file" 2>/dev/null)" || continue
+            case "$info" in *x86_64*arm64*|*arm64*x86_64*) ;; *) echo "::error::$file is not universal: $info"; exit 1;; esac
+          done < <(find "$app" -type f -perm +111 -print0)
+          echo "APP=$app" >> $GITHUB_ENV
+          lipo -info "$app/Contents/MacOS/"*
+          /usr/libexec/PlistBuddy -c "Print :LSMinimumSystemVersion" "$app/Contents/Info.plist" || true
+
+      # Not signed with an Apple Developer ID (there is none), only ad hoc: that is enough for Apple
+      # Silicon to run it. The first start needs a right click, Open, or:
+      #   xattr -dr com.apple.quarantine /Applications/VoidGram.app
+      - name: Ad hoc signature and the disk image.
+        run: |
+          codesign --force --deep --sign - "$APP"
+          codesign --verify --deep "$APP"
+          mkdir dmg && cp -R "$APP" dmg/VoidGram.app
+          ln -s /Applications dmg/Applications
+          hdiutil create -volname VoidGram -srcfolder dmg -ov -format UDZO voidgram-desktop-macos-universal.dmg
+          ls -la voidgram-desktop-macos-universal.dmg
 
       - uses: actions/upload-artifact@v4
         with:
           name: voidgram-desktop-macos-universal
-          path: dist/*
+          path: voidgram-desktop-macos-universal.dmg
           if-no-files-found: error
 
-  release:
-    if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: voidgram-desktop-macos-universal
-          path: dist
-      - name: Attach packages to release
+      - name: Attach to the release.
+        if: inputs.release_tag != ''
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.release_tag }}
-        run: gh release upload "$TAG" dist/* --clobber -R "$GITHUB_REPOSITORY"
+        run: gh release upload "$TAG" voidgram-desktop-macos-universal.dmg --clobber -R "$GITHUB_REPOSITORY"
