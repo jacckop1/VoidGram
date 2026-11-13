@@ -315,11 +315,16 @@ static void VGStoreConversion(NSString *identifier, NSDictionary *item) {
     [self vgLoadAsset:asset completion:^(AVAsset *source) {
         objc_setAssociatedObject(self, vgLoadingKey, @NO, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         if (!source) { [self vgAlert:@"تعذر فتح الفيديو."]; return; }
+        id focus = [self valueForKey:@"_currentItem"];
+        id editable = [focus respondsToSelector:@selector(asset)] ? [focus valueForKey:@"asset"] : asset;
+        TGMediaEditingContext *editing = [self valueForKey:@"_editingContext"];
+        TGVideoEditAdjustments *adjustments = (TGVideoEditAdjustments *)[editing adjustmentsForItem:editable];
+        NSTimeInterval start = adjustments.trimApplied ? MAX(0, adjustments.trimStartValue) : 0;
         dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
             AVAssetImageGenerator *generator = [[AVAssetImageGenerator alloc] initWithAsset:source];
             generator.appliesPreferredTrackTransform = YES;
             generator.maximumSize = CGSizeMake(640, 640);
-            CGImageRef frame = [generator copyCGImageAtTime:kCMTimeZero actualTime:NULL error:NULL];
+            CGImageRef frame = [generator copyCGImageAtTime:CMTimeMakeWithSeconds(start, 600) actualTime:NULL error:NULL];
             UIImage *image = frame ? [UIImage imageWithCGImage:frame] : nil;
             if (frame) CGImageRelease(frame);
             dispatch_async(dispatch_get_main_queue(), ^{
