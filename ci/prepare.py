@@ -6,6 +6,7 @@ from pathlib import Path
 import shutil
 import subprocess
 from port_sources import missing_port_sources
+from video_conversion import apply as apply_video_conversion
 
 parser = argparse.ArgumentParser()
 parser.add_argument("source", type=Path)
@@ -65,6 +66,11 @@ patches = [
 for patch in patches:
     subprocess.run(["git", "apply", "--recount", "--check", str(patch)], cwd=source, check=True)
     subprocess.run(["git", "apply", "--recount", str(patch)], cwd=source, check=True)
+
+# Compile the two native media conversion controls directly into the app.
+# Kept separate from upstream patches to avoid an import cycle between
+# MediaPickerUI, TelegramUI and TelegramCore.
+apply_video_conversion(source, root)
 
 # The largest in-app logo is 100 pt (AyuSettingsHeaderItem); the icon picker is
 # at most 72 pt. Ship 300 px previews for 3x screens instead of decoding 1254 px
