@@ -7,6 +7,7 @@ static NSMutableDictionary<NSString *, NSDictionary *> *vgConvertedItems;
 static const void *vgNoteKey = &vgNoteKey;
 static const void *vgVoiceKey = &vgVoiceKey;
 static const void *vgBusyKey = &vgBusyKey;
+static const void *vgLoadingKey = &vgLoadingKey;
 
 NSDictionary *VGPreparedVideoForIdentifier(NSString *identifier) {
     if (!identifier.length) return nil;
@@ -81,7 +82,7 @@ static void VGStoreConversion(NSString *identifier, NSDictionary *item) {
     [self.view viewWithTag:9001].frame = CGRectMake(16, CGRectGetMaxY(_circle.frame) + 12, w - 32, 28);
     CGFloat y = h - MAX(24, self.view.safeAreaInsets.bottom) - 56;
     [self.view viewWithTag:9002].frame = CGRectMake(16, y, 90, 48);
-    [self.view viewWithTag:9003].frame = CGRectMake(w / 2 - 50, y, 100, 48);
+    [self.view viewWithTag:9003].frame = CGRectMake(w / 2 - 60, y - 48, 120, 40);
     [self.view viewWithTag:9004].frame = CGRectMake(w - 174, y, 162, 48);
     [self vgUpdateCrop];
 }
@@ -133,7 +134,12 @@ static void VGStoreConversion(NSString *identifier, NSDictionary *item) {
     return ((TGMediaAsset *)asset).type == TGMediaAssetVideoType ? asset : nil;
 }
 - (BOOL)vgExportInProgress {
-    return [objc_getAssociatedObject(self, vgBusyKey) boolValue];
+    return [objc_getAssociatedObject(self, vgBusyKey) boolValue] ||
+           [objc_getAssociatedObject(self, vgLoadingKey) boolValue];
+}
+- (BOOL)vgIsConversionButton:(UIView *)view {
+    return view && (view == objc_getAssociatedObject(self, vgNoteKey) ||
+                    view == objc_getAssociatedObject(self, vgVoiceKey));
 }
 - (void)vgAlert:(NSString *)message {
     UIViewController *controller = self.controller ? self.controller() : nil;
@@ -281,7 +287,9 @@ static void VGStoreConversion(NSString *identifier, NSDictionary *item) {
     if ([VGPreparedVideoForIdentifier(asset.identifier)[@"mode"] isEqualToString:@"voice"]) {
         VGStoreConversion(asset.identifier, nil); [self vgUpdateConversionControls]; return;
     }
+    objc_setAssociatedObject(self, vgLoadingKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     [self vgLoadAsset:asset completion:^(AVAsset *source) {
+        objc_setAssociatedObject(self, vgLoadingKey, @NO, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         if (source) [self vgExport:source forAsset:asset mode:@"voice" zoom:1 pan:CGPointZero];
         else [self vgAlert:@"تعذر فتح الفيديو."];
     }];
@@ -292,7 +300,9 @@ static void VGStoreConversion(NSString *identifier, NSDictionary *item) {
     if ([VGPreparedVideoForIdentifier(asset.identifier)[@"mode"] isEqualToString:@"note"]) {
         VGStoreConversion(asset.identifier, nil); [self vgUpdateConversionControls]; return;
     }
+    objc_setAssociatedObject(self, vgLoadingKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     [self vgLoadAsset:asset completion:^(AVAsset *source) {
+        objc_setAssociatedObject(self, vgLoadingKey, @NO, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         if (!source) { [self vgAlert:@"تعذر فتح الفيديو."]; return; }
         dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
             AVAssetImageGenerator *generator = [[AVAssetImageGenerator alloc] initWithAsset:source];
