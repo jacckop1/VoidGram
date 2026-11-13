@@ -236,6 +236,8 @@
   "submodules/TelegramUI/Sources/AyuToast.swift",
   "submodules/TelegramUI/Sources/AyuTrackRecognizer.swift",
   "submodules/TelegramUI/Sources/AyuVideoCircle.swift",
+  "submodules/TelegramCore/Sources/AyuGram/AyuMediaConversionBridge.swift",
+  "submodules/MediaPickerUI/Sources/AyuVideoPreviewActions.swift",
   "submodules/TelegramUI/Sources/AyuVisionTools.swift",
   "submodules/TelegramUI/Sources/AyuVoiceChanger.swift",
   "submodules/TelegramUI/Sources/Chat/AyuMessageShotCanvas.swift",
