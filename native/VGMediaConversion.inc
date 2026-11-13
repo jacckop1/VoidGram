@@ -2,6 +2,7 @@
 #import <AVFoundation/AVFoundation.h>
 #import <Photos/Photos.h>
 #import <objc/runtime.h>
+#import <math.h>
 
 static NSMutableDictionary<NSString *, NSDictionary *> *vgConvertedItems;
 static const void *vgNoteKey = &vgNoteKey;
@@ -222,7 +223,7 @@ static void VGStoreConversion(NSString *identifier, NSDictionary *item) {
     NSTimeInterval length = MAX(0.1, end - start);
     if (round) length = MIN(60, length);
     NSString *fileName = [NSString stringWithFormat:@"vg%@_%ld_%@.%@",
-         round ? @"note" : @"voice", (long)MAX(1, lround(length)), [NSUUID UUID].UUIDString,
+         round ? @"note" : @"voice", (long)MAX(1, lround(length)), [[NSUUID UUID] UUIDString],
          round ? @"mp4" : @"m4a"];
     NSURL *output = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:fileName]];
     AVAssetExportSession *export = [[AVAssetExportSession alloc] initWithAsset:source
@@ -232,8 +233,15 @@ static void VGStoreConversion(NSString *identifier, NSDictionary *item) {
         [self vgAlert:@"ما نكدر نحول هذا الفيديو."];
         return;
     }
+    AVFileType outputType = round ? AVFileTypeMPEG4 : AVFileTypeAppleM4A;
+    if (![export.supportedFileTypes containsObject:outputType]) {
+        objc_setAssociatedObject(self, vgBusyKey, @NO, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        [self vgAlert:@"صيغة إخراج الفيديو غير مدعومة على هذا الجهاز."];
+        return;
+    }
     export.outputURL = output;
-    export.outputFileType = round ? AVFileTypeMPEG4 : AVFileTypeAppleM4A;
+    export.outputFileType = outputType;
+    export.shouldOptimizeForNetworkUse = YES;
     export.timeRange = CMTimeRangeMake(CMTimeMakeWithSeconds(start, 600), CMTimeMakeWithSeconds(length, 600));
     if (round) {
         CGRect rect = CGRectApplyAffineTransform(CGRectMake(0, 0,
@@ -248,11 +256,14 @@ static void VGStoreConversion(NSString *identifier, NSDictionary *item) {
         CGFloat resultWidth = width * scale, resultHeight = height * scale;
         CGFloat dx = -(resultWidth - 640) / 2 + pan.x * (resultWidth - 640) / 2;
         CGFloat dy = -(resultHeight - 640) / 2 + pan.y * (resultHeight - 640) / 2;
-        CGAffineTransform correction = CGAffineTransformConcat(track.preferredTransform,
-            CGAffineTransformMakeTranslation(-rect.origin.x, -rect.origin.y));
-        CGAffineTransform t = CGAffineTransformConcat(
-            CGAffineTransformConcat(correction, CGAffineTransformMakeScale(scale, scale)),
-            CGAffineTransformMakeTranslation(dx, dy));
+        // Normalize the oriented bounding box, then apply the same
+        // center crop as the preview, including the user's pan and zoom.
+        CGAffineTransform t = track.preferredTransform;
+        t.tx -= CGRectGetMinX(rect);
+        t.ty -= CGRectGetMinY(rect);
+        t.a *= scale; t.b *= scale; t.c *= scale; t.d *= scale;
+        t.tx = t.tx * scale + dx;
+        t.ty = t.ty * scale + dy;
         AVMutableVideoCompositionLayerInstruction *layer =
             [AVMutableVideoCompositionLayerInstruction videoCompositionLayerInstructionWithAssetTrack:track];
         [layer setTransform:t atTime:kCMTimeZero];
