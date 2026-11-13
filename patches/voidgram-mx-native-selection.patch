@@ -1,0 +1,166 @@
+diff --git a/submodules/TelegramUI/Sources/Chat/ChatControllerLoadDisplayNode.swift b/submodules/TelegramUI/Sources/Chat/ChatControllerLoadDisplayNode.swift
+--- a/submodules/TelegramUI/Sources/Chat/ChatControllerLoadDisplayNode.swift
++++ b/submodules/TelegramUI/Sources/Chat/ChatControllerLoadDisplayNode.swift
+@@ -1,3 +1,4 @@
+ import Foundation
+ import UIKit
++import ObjectiveC
+ import SwiftSignalKit
+@@ -5644,6 +5644,157 @@
+         
+         if self.didAppear {
+             historyNode.canReadHistory.set(self.computedCanReadHistoryPromise.get())
+         }
+     }
+ }
++
++// MX selection-only bridge for TelegramUI / VoidGram.
++// Deliberately uses TelegramEngine and the official ChatPanelInterfaceInteraction.
++// No MTProto deletion RPC is issued by this bridge.
++private var mxNativeSelectionAssociationKey: UInt8 = 0
++
++private final class MxNativeGroupSelectionSession: NSObject {
++    let peerId: PeerId
++    let accountPeerId: PeerId
++    var state: Int32 = 1  // 1 loading, 2 empty, 3 ready, 4 not verified
++    var selectedIds: [MessageId] = []
++    var fetchedAt: TimeInterval = 0
++    var searchDisposable: Disposable?
++
++    init(peerId: PeerId, accountPeerId: PeerId) {
++        self.peerId = peerId
++        self.accountPeerId = accountPeerId
++        super.init()
++    }
++
++    deinit {
++        self.searchDisposable?.dispose()
++    }
++}
++
++extension ChatControllerImpl {
++    // Only ordinary group chats: excludes direct messages, broadcast channels,
++    // saved messages, forum topics and reply-thread screens.
++    @objc(mxCanSelectMyGroupMessages)
++    func mxCanSelectMyGroupMessages() -> Bool {
++        guard self.isNodeLoaded,
++              self.presentationInterfaceState.interfaceState.selectionState == nil,
++              self.chatLocation.threadId == nil,
++              let peerId = self.chatLocation.peerId else {
++            return false
++        }
++        if peerId.namespace == Namespaces.Peer.CloudGroup {
++            return true
++        }
++        guard peerId.namespace == Namespaces.Peer.CloudChannel,
++              let channel = self.presentationInterfaceState.renderedPeer?.peer as? TelegramChannel else {
++            return false
++        }
++        if case .group = channel.info {
++            return true
++        }
++        return false
++    }
++
++    private func mxCurrentGroupSession() -> MxNativeGroupSelectionSession? {
++        guard let peerId = self.chatLocation.peerId,
++              let session = objc_getAssociatedObject(self, &mxNativeSelectionAssociationKey) as? MxNativeGroupSelectionSession,
++              session.peerId == peerId,
++              session.accountPeerId == self.context.account.peerId else {
++            return nil
++        }
++        return session
++    }
++
++    @objc(mxMyGroupSelectionStatus)
++    func mxMyGroupSelectionStatus() -> Int32 {
++        guard self.mxCanSelectMyGroupMessages(), let session = self.mxCurrentGroupSession() else {
++            return 0
++        }
++        if session.state == 3 && Date().timeIntervalSince1970 - session.fetchedAt > 60.0 {
++            return 4
++        }
++        return session.state
++    }
++
++    // Warm up a per-chat search for up to 100 messages sent by the *current
++    // account*. No other chats or authors can enter this result set.
++    @objc(mxPrepareMyGroupSelection)
++    func mxPrepareMyGroupSelection() {
++        guard self.mxCanSelectMyGroupMessages(),
++              let peerId = self.chatLocation.peerId else {
++            return
++        }
++        if let current = self.mxCurrentGroupSession(),
++           current.state == 1 || current.state == 2 ||
++           (current.state == 3 && Date().timeIntervalSince1970 - current.fetchedAt <= 60.0) {
++            return
++        }
++
++        let accountPeerId = self.context.account.peerId
++        let session = MxNativeGroupSelectionSession(peerId: peerId, accountPeerId: accountPeerId)
++        objc_setAssociatedObject(self, &mxNativeSelectionAssociationKey, session, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
++
++        session.searchDisposable = (
++            self.context.engine.messages.searchMessages(
++                location: .peer(peerId: peerId, fromId: accountPeerId,
++                                tags: nil, reactions: nil, threadId: nil,
++                                minDate: nil, maxDate: nil),
++                query: "", state: nil, limit: 100
++            )
++            |> deliverOnMainQueue
++        ).start(next: { [weak self, weak session] result, _ in
++            guard let self, let session,
++                  let current = self.mxCurrentGroupSession(),
++                  current === session else {
++                return
++            }
++            guard self.mxCanSelectMyGroupMessages(), self.view.window != nil else {
++                session.state = 4
++                return
++            }
++            // The server filters by fromId. Check the actual message author and
++            // target again before handing ids to native selection.
++            let ids = Array(Set(result.messages.compactMap { message -> MessageId? in
++                guard message.id.peerId == peerId,
++                      message.author?.id == accountPeerId,
++                      message.id.namespace == Namespaces.Message.Cloud else {
++                    return nil
++                }
++                return message.id
++            })).sorted().prefix(100)
++            session.selectedIds = Array(ids)
++            session.fetchedAt = Date().timeIntervalSince1970
++            if !session.selectedIds.isEmpty {
++                session.state = 3
++            } else if result.totalCount == 0 && result.completed {
++                session.state = 2
++            } else {
++                session.state = 4
++            }
++            self.view.setNeedsLayout()
++        })
++    }
++
++    // Opens the actual Telegram multiple-selection mode; the built-in delete
++    // control and its confirmation remain the ONLY deletion path.
++    @objc(mxBeginMyGroupSelection)
++    func mxBeginMyGroupSelection() -> Bool {
++        guard self.mxCanSelectMyGroupMessages(),
++              let session = self.mxCurrentGroupSession(),
++              session.state == 3,
++              Date().timeIntervalSince1970 - session.fetchedAt <= 60.0,
++              !session.selectedIds.isEmpty,
++              self.view.window != nil,
++              let interaction = self.chatDisplayNode.interfaceInteraction else {
++            return false
++        }
++        interaction.beginMessageSelection(session.selectedIds, { _ in })
++        return true
++    }
++
++    @objc(mxCancelMyGroupSelection)
++    func mxCancelMyGroupSelection() {
++        objc_setAssociatedObject(self, &mxNativeSelectionAssociationKey, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
++    }
++}
