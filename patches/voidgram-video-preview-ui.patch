@@ -1,0 +1,101 @@
+diff --git a/submodules/LegacyComponents/Sources/TGMediaPickerGalleryInterfaceView.m b/submodules/LegacyComponents/Sources/TGMediaPickerGalleryInterfaceView.m
+--- a/submodules/LegacyComponents/Sources/TGMediaPickerGalleryInterfaceView.m
++++ b/submodules/LegacyComponents/Sources/TGMediaPickerGalleryInterfaceView.m
+@@ -33,7 +33,15 @@
+ #import <LegacyComponents/TGPhotoEditorButton.h>
+ #import <LegacyComponents/TGCheckButtonView.h>
+ #import "TGMediaPickerPhotoCounterButton.h"
+-#import "TGMediaPickerPhotoStripView.h"
++#import "TGMediaPickerPhotoStripView.h"
++
++@interface TGMediaPickerGalleryInterfaceView (VGMediaConversion)
++- (void)vgInstallConversionControls;
++- (void)vgUpdateConversionControls;
++- (BOOL)vgExportInProgress;
++- (void)vgShowProcessingAlert;
++- (BOOL)vgIsConversionButton:(UIView *)view;
++@end
+ 
+ #import "TGMediaPickerScrubberHeaderView.h"
+ #import <LegacyComponents/TGPhotoEditorInterfaceAssets.h>
+@@ -211,7 +219,11 @@
+             if (strongSelf == nil)
+                 return;
+             
+-            strongSelf->_ignoreSelectionUpdates = true;
++            if ([strongSelf vgExportInProgress]) {
++                [strongSelf vgShowProcessingAlert];
++                return;
++            }
++            strongSelf->_ignoreSelectionUpdates = true;
+             [strongSelf->_selectionChangedDisposable dispose];
+             [strongSelf->_itemSelectedDisposable dispose];
+             
+@@ -256,7 +268,8 @@
+         [_muteButton setImage:[TGPhotoEditorInterfaceAssets muteActiveIcon] forState:UIControlStateSelected];
+         [_muteButton setImage:[TGPhotoEditorInterfaceAssets muteActiveIcon]  forState:UIControlStateSelected | UIControlStateHighlighted];
+         [_muteButton addTarget:self action:@selector(toggleSendAsGif) forControlEvents:UIControlEventTouchUpInside];
+-        [_wrapperView addSubview:_muteButton];
++        [_wrapperView addSubview:_muteButton];
++        [self vgInstallConversionControls];
+         
+         if (recipientName.length > 0)
+         {
+@@ -697,8 +710,9 @@
+ 
+ - (void)itemFocused:(id<TGModernGalleryItem>)item itemView:(TGModernGalleryItemView *)itemView
+ {
+-    _currentItem = item;
+-    _currentItemView = itemView;
++    _currentItem = item;
++    _currentItemView = itemView;
++    [self vgUpdateConversionControls];
+     
+     [_currentItemView setSafeAreaInset:[self localSafeAreaInset]];
+     
+@@ -1802,8 +1816,9 @@
+         editingCover = true;
+     }
+     if (!editingCover) {
+-        if (view == _photoCounterButton
+-            || view == _checkButton
++        if (view == _photoCounterButton
++            || [self vgIsConversionButton:view]
++            || view == _checkButton
+             || view == _muteButton
+             || view == _groupButton
+             || view == _cameraButton
+@@ -2217,17 +2232,20 @@
+         itemHeaderView.frame = _headerWrapperView.bounds;
+     
+     CGRect itemFooterViewFrame = [self itemFooterViewFrameForSize:self.frame.size];
+-    for (UIView *itemFooterView in _itemFooterViews)
+-        itemFooterView.frame = itemFooterViewFrame;
+-}
+-
+-- (CGRect)doneButtonFrame {
+-    if (UIDeviceOrientationIsPortrait((UIDeviceOrientation)[self interfaceOrientation])) {
+-        return [_portraitToolbarView.doneButton convertRect:_portraitToolbarView.doneButton.bounds toView:nil];
+-    } else {
+-        return [_landscapeToolbarView.doneButton convertRect:_landscapeToolbarView.doneButton.bounds toView:nil];
+-    }
+-}
+-
+-@end
++    for (UIView *itemFooterView in _itemFooterViews)
++        itemFooterView.frame = itemFooterViewFrame;
++    [self vgUpdateConversionControls];
++}
++
++- (CGRect)doneButtonFrame {
++    if (UIDeviceOrientationIsPortrait((UIDeviceOrientation)[self interfaceOrientation])) {
++        return [_portraitToolbarView.doneButton convertRect:_portraitToolbarView.doneButton.bounds toView:nil];
++    } else {
++        return [_landscapeToolbarView.doneButton convertRect:_landscapeToolbarView.doneButton.bounds toView:nil];
++    }
++}
++
++@end
++
++#import "VGMediaConversion.inc"
+ 
