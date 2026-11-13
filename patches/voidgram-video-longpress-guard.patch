@@ -1,0 +1,28 @@
+diff --git a/submodules/LegacyComponents/Sources/TGMediaPickerGalleryInterfaceView.m b/submodules/LegacyComponents/Sources/TGMediaPickerGalleryInterfaceView.m
+--- a/submodules/LegacyComponents/Sources/TGMediaPickerGalleryInterfaceView.m
++++ b/submodules/LegacyComponents/Sources/TGMediaPickerGalleryInterfaceView.m
+@@ -230,13 +230,17 @@
+             
+             [strongSelf->_captionMixin onAnimateOut];
+         };
+-        void(^toolbarDoneLongPressed)(id) = ^(id sender)
+-        {
+-            __strong TGMediaPickerGalleryInterfaceView *strongSelf = weakSelf;
+-            if (strongSelf == nil)
+-                return;
+-            
+-            [strongSelf.window endEditing:true];
++        void(^toolbarDoneLongPressed)(id) = ^(id sender)
++        {
++            __strong TGMediaPickerGalleryInterfaceView *strongSelf = weakSelf;
++            if (strongSelf == nil)
++                return;
++            if ([strongSelf vgExportInProgress]) {
++                [strongSelf vgShowProcessingAlert];
++                return;
++            }
++            
++            [strongSelf.window endEditing:true];
+             if (strongSelf->_doneLongPressed != nil) {
+                 UIView *sourceView = [sender isKindOfClass:[UIView class]] ? (UIView *)sender : nil;
+                 strongSelf->_doneLongPressed(strongSelf->_currentItem, sourceView);
