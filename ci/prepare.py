@@ -61,10 +61,22 @@ patches = [
     root / "patches" / "voidgram-swipe-actions.patch",
     root / "patches" / "voidgram-avatar-frames-rating.patch",
     root / "patches" / "voidgram-name-styles.patch",
+    root / "patches" / "voidgram-video-preview-ui.patch",
+    root / "patches" / "voidgram-video-description.patch",
+    root / "patches" / "voidgram-video-attributes.patch",
 ]
 for patch in patches:
     subprocess.run(["git", "apply", "--recount", "--check", str(patch)], cwd=source, check=True)
     subprocess.run(["git", "apply", "--recount", str(patch)], cwd=source, check=True)
+
+# The gallery category is included by the native Objective-C source file;
+# it must live alongside that file before the Xcode/Bazel compile stage.
+conversion_source = root / "native" / "VGMediaConversion.inc"
+conversion_target = source / "submodules" / "LegacyComponents" / "Sources" / "VGMediaConversion.inc"
+if not conversion_source.is_file():
+    raise SystemExit("Missing native video conversion implementation")
+shutil.copy2(conversion_source, conversion_target)
+
 
 # The largest in-app logo is 100 pt (AyuSettingsHeaderItem); the icon picker is
 # at most 72 pt. Ship 300 px previews for 3x screens instead of decoding 1254 px
