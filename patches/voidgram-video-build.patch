@@ -1,0 +1,11 @@
+diff --git a/submodules/LegacyComponents/BUILD b/submodules/LegacyComponents/BUILD
+--- a/submodules/LegacyComponents/BUILD
++++ b/submodules/LegacyComponents/BUILD
+@@ -29,6 +29,8 @@
+         "MediaPlayer",
+         "CoreMotion",
++        "AVFoundation",
++        "Photos",
+     ],
+     weak_sdk_frameworks = [
+         "Vision",
