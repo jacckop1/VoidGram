@@ -64,6 +64,7 @@ patches = [
     root / "patches" / "voidgram-video-preview-ui.patch",
     root / "patches" / "voidgram-video-description.patch",
     root / "patches" / "voidgram-video-attributes.patch",
+    root / "patches" / "voidgram-video-build.patch",
 ]
 for patch in patches:
     subprocess.run(["git", "apply", "--recount", "--check", str(patch)], cwd=source, check=True)
@@ -72,7 +73,7 @@ for patch in patches:
 # The gallery category is included by the native Objective-C source file;
 # it must live alongside that file before the Xcode/Bazel compile stage.
 conversion_source = root / "native" / "VGMediaConversion.inc"
-conversion_target = source / "submodules" / "LegacyComponents" / "Sources" / "VGMediaConversion.inc"
+conversion_target = source / "submodules" / "LegacyComponents" / "Sources" / "VGMediaConversion.h"
 if not conversion_source.is_file():
     raise SystemExit("Missing native video conversion implementation")
 shutil.copy2(conversion_source, conversion_target)
