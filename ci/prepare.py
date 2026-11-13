@@ -165,3 +165,6 @@ missing = missing_port_sources(source)
 if missing:
     raise SystemExit("Port patch is missing required native source files:\n" + "\n".join(missing))
 print("Applied native VoidGram changes to " + actual)
+
+# Seed native supported Kira plugins inside the source build, never by a dylib constructor.
+subprocess.run(["python3", str(root / "ci/kira_builtin_plugins.py"), str(source)], check=True)
