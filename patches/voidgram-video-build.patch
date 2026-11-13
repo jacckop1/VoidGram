@@ -1,7 +1,7 @@
 diff --git a/submodules/LegacyComponents/BUILD b/submodules/LegacyComponents/BUILD
 --- a/submodules/LegacyComponents/BUILD
 +++ b/submodules/LegacyComponents/BUILD
-@@ -29,6 +29,8 @@
+@@ -49,5 +49,7 @@
          "MediaPlayer",
          "CoreMotion",
 +        "AVFoundation",
