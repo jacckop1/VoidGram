@@ -5,7 +5,7 @@ name: Native iOS port
 # the port start an optimized release_arm64 build; documentation-only pushes do not.
 on:
   push:
-    branches: [main]
+    branches: [main, feature/kira-five-plugins-native]
     paths:
       - patches/**
       - assets/**
