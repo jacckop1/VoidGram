@@ -64,6 +64,7 @@ patches = [
     root / "patches" / "voidgram-video-preview-ui.patch",
     root / "patches" / "voidgram-video-description.patch",
     root / "patches" / "voidgram-video-attributes.patch",
+    root / "patches" / "voidgram-video-longpress-guard.patch",
     root / "patches" / "voidgram-video-build.patch",
 ]
 for patch in patches:
