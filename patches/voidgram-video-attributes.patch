@@ -1,0 +1,33 @@
+diff --git a/submodules/LegacyMediaPickerUI/Sources/LegacyMediaPickers.swift b/submodules/LegacyMediaPickerUI/Sources/LegacyMediaPickers.swift
+--- a/submodules/LegacyMediaPickerUI/Sources/LegacyMediaPickers.swift
++++ b/submodules/LegacyMediaPickerUI/Sources/LegacyMediaPickers.swift
+@@ -701,7 +701,19 @@
+                                     var randomId: Int64 = 0
+                                     arc4random_buf(&randomId, 8)
+                                     let resource = LocalFileReferenceMediaResource(localFilePath: path, randomId: randomId)
+-                                    let media = TelegramMediaFile(fileId: EngineMedia.Id(namespace: Namespaces.Media.LocalFile, id: randomId), partialReference: nil, resource: resource, previewRepresentations: previewRepresentations, videoThumbnails: [], immediateThumbnailData: nil, mimeType: mimeType, size: engineFileSize(path), attributes: [.FileName(fileName: name)], alternativeRepresentations: [])
++                                    // The original Telegram send pipeline recognizes voice and
++                                    // instant round-video from these media attributes.
++                                    let isVGVoice = name.hasPrefix("vgvoice_") && mimeType == "audio/mp4"
++                                    let isVGNote = name.hasPrefix("vgnote_") && mimeType == "video/mp4"
++                                    let parts = name.split(separator: "_")
++                                    let duration = parts.count > 2 ? max(1, Int(parts[1]) ?? 1) : 1
++                                    var mediaAttributes: [TelegramMediaFileAttribute] = [.FileName(fileName: name)]
++                                    if isVGVoice {
++                                        mediaAttributes.append(.Audio(isVoice: true, duration: duration, title: nil, performer: nil, waveform: nil))
++                                    } else if isVGNote {
++                                        mediaAttributes.append(.Video(duration: Double(duration), size: PixelDimensions(width: 640, height: 640), flags: [.instantRoundVideo, .supportsStreaming], preloadSize: nil, coverTime: nil, videoCodec: nil))
++                                    }
++                                    let media = TelegramMediaFile(fileId: EngineMedia.Id(namespace: Namespaces.Media.LocalFile, id: randomId), partialReference: nil, resource: resource, previewRepresentations: previewRepresentations, videoThumbnails: [], immediateThumbnailData: nil, mimeType: mimeType, size: engineFileSize(path), attributes: mediaAttributes, alternativeRepresentations: [])
+                                     
+                                     var attributes: [EngineMessage.Attribute] = []
+                                     let text = trimChatInputText(convertMarkdownToAttributes(caption ?? NSAttributedString()))
+@@ -748,7 +760,7 @@
+                                             )
+                                         }
+                                     } else {
+-                                        messages.append(LegacyAssetPickerEnqueueMessage(message: .message(text: text.string, attributes: attributes, inlineStickers: [:], mediaReference: .standalone(media: media), threadId: nil, replyToMessageId: nil, replyToStoryId: nil, localGroupingKey: item.groupedId, correlationId: nil, bubbleUpEmojiOrStickersets: bubbleUpEmojiOrStickersets), uniqueId: item.uniqueId, isFile: true))
++                                        messages.append(LegacyAssetPickerEnqueueMessage(message: .message(text: text.string, attributes: attributes, inlineStickers: [:], mediaReference: .standalone(media: media), threadId: nil, replyToMessageId: nil, replyToStoryId: nil, localGroupingKey: item.groupedId, correlationId: nil, bubbleUpEmojiOrStickersets: bubbleUpEmojiOrStickersets), uniqueId: item.uniqueId, isFile: !(isVGVoice || isVGNote)))
+                                     }
+                                 case let .asset(asset):
+                                     var randomId: Int64 = 0
