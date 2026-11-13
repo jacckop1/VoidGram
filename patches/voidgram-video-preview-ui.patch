@@ -65,7 +65,7 @@ diff --git a/submodules/LegacyComponents/Sources/TGMediaPickerGalleryInterfaceVi
              || view == _muteButton
              || view == _groupButton
              || view == _cameraButton
-@@ -2217,17 +2232,20 @@
+@@ -2217,16 +2232,19 @@
          itemHeaderView.frame = _headerWrapperView.bounds;
      
      CGRect itemFooterViewFrame = [self itemFooterViewFrameForSize:self.frame.size];
@@ -97,5 +97,4 @@ diff --git a/submodules/LegacyComponents/Sources/TGMediaPickerGalleryInterfaceVi
 +
 +@end
 +
-+#import "VGMediaConversion.inc"
- 
++#import "VGMediaConversion.h"
