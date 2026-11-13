@@ -1,0 +1,43 @@
+diff --git a/submodules/LegacyComponents/Sources/TGMediaAssetsController.m b/submodules/LegacyComponents/Sources/TGMediaAssetsController.m
+--- a/submodules/LegacyComponents/Sources/TGMediaAssetsController.m
++++ b/submodules/LegacyComponents/Sources/TGMediaAssetsController.m
+@@ -30,7 +30,9 @@
+ #import <LegacyComponents/TGPaintingData.h>
+ 
+ #import <LegacyComponents/TGModernButton.h>
+-#import "PGPhotoEditor.h"
++#import "PGPhotoEditor.h"
++
++extern NSDictionary *VGPreparedVideoForIdentifier(NSString *identifier);
+ 
+ static TGMediaAsset *TGMediaAssetsLivePhotoAsset(id<TGMediaEditableItem> item)
+ {
+@@ -973,7 +975,27 @@
+     if (_intent == TGMediaAssetsControllerSendMediaIntent && _selectionContext.allowGrouping)
+         [[NSUserDefaults standardUserDefaults] setObject:@(!_selectionContext.grouping) forKey:@"TG_mediaGroupingDisabled_v0"];
+         
+-    return [TGMediaAssetsController resultSignalsForSelectionContext:_selectionContext editingContext:_editingContext intent:_intent currentItem:currentItem storeAssets:storeAssets convertToJpeg:false descriptionGenerator:descriptionGenerator saveEditedPhotos:_saveEditedPhotos];
++    id (^convertedGenerator)(id, NSAttributedString *, NSString *, NSString *) =
++        ^id(id desc, NSAttributedString *caption, NSString *hashValue, NSString *uniqueId) {
++            NSDictionary *ready = VGPreparedVideoForIdentifier(uniqueId);
++            if (ready && [desc isKindOfClass:[NSDictionary class]]) {
++                NSString *type = desc[@"type"];
++                if ([type isEqualToString:@"video"] || [type isEqualToString:@"cameraVideo"]) {
++                    NSMutableDictionary *item = [desc mutableCopy];
++                    item[@"type"] = @"file";
++                    item[@"tempFileUrl"] = ready[@"url"];
++                    item[@"fileName"] = ready[@"fileName"];
++                    item[@"mimeType"] = [ready[@"mode"] isEqualToString:@"note"] ? @"video/mp4" : @"audio/mp4";
++                    [item removeObjectForKey:@"groupedId"];
++                    [item removeObjectForKey:@"asset"];
++                    [item removeObjectForKey:@"adjustments"];
++                    [item removeObjectForKey:@"document"];
++                    return descriptionGenerator(item, caption, hashValue, uniqueId);
++                }
++            }
++            return descriptionGenerator(desc, caption, hashValue, uniqueId);
++        };
++    return [TGMediaAssetsController resultSignalsForSelectionContext:_selectionContext editingContext:_editingContext intent:_intent currentItem:currentItem storeAssets:storeAssets convertToJpeg:false descriptionGenerator:convertedGenerator saveEditedPhotos:_saveEditedPhotos];
+ }
+ 
+ + (int64_t)generateGroupedId
