@@ -218,7 +218,7 @@ final class AyuVideoRoundCropController: UIViewController, UIScrollViewDelegate 
             help.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 18),
             help.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -18),
             cropScrollView.widthAnchor.constraint(lessThanOrEqualTo: view.widthAnchor, constant: -32),
-            cropScrollView.widthAnchor.constraint(equalToConstant: 296),
+            cropScrollView.widthAnchor.constraint(equalToConstant: 280),
             cropScrollView.heightAnchor.constraint(equalTo: cropScrollView.widthAnchor),
             cropScrollView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             cropScrollView.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: -12),
